@@ -1,0 +1,23 @@
+{
+  "name": "ai-debate-arena",
+  "version": "1.0.0",
+  "description": "Real-time AI debate between two opposing AI agents with natural voices. Users can join the debate with their microphone.",
+  "type": "module",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "deno run --allow-net --allow-env --allow-read backend/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "socket.io": "^4.8.0"
+  },
+  "keywords": ["ai", "debate", "claude", "elevenlabs", "websocket", "tts"],
+  "license": "MIT"
+}
