@@ -22,7 +22,7 @@ const SYSTEM_PROMPTS = {
 
 // The whole debate happens in the language the user picked. The topic itself may
 // be typed in any language — respond in the chosen one regardless.
-const LANGUAGE_NAMES = { en: "English", de: "German", fa: "Persian (Farsi)" };
+const LANGUAGE_NAMES = { en: "English", de: "German" };
 
 function languageRule(language) {
   const lang = LANGUAGE_NAMES[language] ? language : "en";

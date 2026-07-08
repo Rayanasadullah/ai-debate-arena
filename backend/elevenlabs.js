@@ -6,17 +6,15 @@ const VOICE_SETTINGS = {
 };
 
 // Which model to use per language. English stays on the fast turbo model; other
-// languages use the multilingual model. (Task 4 may tune the Persian model/voice.)
+// languages use the multilingual model.
 const MODEL_BY_LANG = {
   en: "eleven_turbo_v2_5",
   de: "eleven_multilingual_v2",
-  fa: "eleven_multilingual_v2",
 };
 
 // Resolve the voice id for an agent in a given language. Language-specific voices
-// are optional env vars (e.g. ELEVENLABS_VOICE_ID_ARIA_FA); until they're set we
-// fall back to the English voice so nothing breaks — Task 4 fills in native
-// German/Persian voices.
+// are optional env vars (e.g. ELEVENLABS_VOICE_ID_ARIA_DE); until they're set we
+// fall back to the English voice so nothing breaks.
 function voiceFor(agent, language) {
   const lang = String(language || "en").toLowerCase();
   const enVoice = process.env[`ELEVENLABS_VOICE_ID_${agent}`];

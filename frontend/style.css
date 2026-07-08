@@ -10,10 +10,8 @@
   --text-dim: rgba(232, 240, 254, 0.55);
   --panel: rgba(12, 19, 33, 0.86);
   --line: rgba(0, 168, 255, 0.12);
-  /* Vazirmatn is the Persian fallback: Latin glyphs render in Orbitron/Inter,
-     Persian glyphs (which those fonts lack) fall through to Vazirmatn. */
-  --font-display: "Orbitron", "Vazirmatn", sans-serif;
-  --font-body: "Inter", "Vazirmatn", sans-serif;
+  --font-display: "Orbitron", sans-serif;
+  --font-body: "Inter", sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -118,14 +116,6 @@ body::after {
   color: var(--aria);
   border-color: rgba(0, 168, 255, 0.6);
   box-shadow: 0 0 14px rgba(0, 168, 255, 0.25);
-}
-
-/* Persian label shouldn't be tracked/uppercased */
-.lang-switch button[lang="fa"] {
-  font-family: var(--font-body);
-  letter-spacing: normal;
-  text-transform: none;
-  font-size: 0.72rem;
 }
 
 .title {
@@ -945,35 +935,6 @@ body::after {
   font-family: var(--font-display);
   background: none;
 }
-
-/* ======= Persian (RTL) =======
-   Persian is cursive: the wide letter-spacing used for the sci-fi Latin type
-   makes it unreadable, so reset tracking on every element that holds Persian
-   copy. The Latin brand type (.title, .agent-name) keeps its tracking. */
-html[lang="fa"] .subtitle,
-html[lang="fa"] .agent-tag,
-html[lang="fa"] .agent-status,
-html[lang="fa"] #transcript-label-text,
-html[lang="fa"] .btn-label,
-html[lang="fa"] .mic-label,
-html[lang="fa"] .stop-label,
-html[lang="fa"] .mic-hint,
-html[lang="fa"] .line-system,
-html[lang="fa"] .toast,
-html[lang="fa"] .line .body,
-html[lang="fa"] .panel-head h2,
-html[lang="fa"] .panel-section h3,
-html[lang="fa"] .pill-btn,
-html[lang="fa"] .new-label,
-html[lang="fa"] .line-archive,
-html[lang="fa"] .field-label {
-  letter-spacing: normal;
-}
-
-html[lang="fa"] .transcript:empty::before { letter-spacing: normal; }
-html[lang="fa"] .agent-status { text-transform: none; }
-html[lang="fa"] .line { line-height: 1.85; }   /* Persian needs more breathing room */
-html[lang="fa"] #topic-input { font-size: 1rem; }
 
 /* ======= Reduced motion ======= */
 @media (prefers-reduced-motion: reduce) {

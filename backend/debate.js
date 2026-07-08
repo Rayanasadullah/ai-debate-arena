@@ -31,7 +31,7 @@ export class DebateSession {
     this.awaitingUser = false;   // loop is parked, waiting for the human to finish
     this.interrupting = false;   // an abort in flight is intentional, not an error
     this.userTextResolve = null;
-    this.language = "en";        // debate language: "en" | "de" | "fa"
+    this.language = "en";        // debate language: "en" | "de"
   }
 
   emit(event, payload) {
@@ -46,7 +46,7 @@ export class DebateSession {
   start(topic, language) {
     const epoch = ++this.epoch; // invalidates any loop from a previous debate
     this.topic = topic;
-    this.language = ["en", "de", "fa"].includes(language) ? language : "en";
+    this.language = ["en", "de"].includes(language) ? language : "en";
     this.history = [
       { role: "user", content: `The debate topic is: "${topic}". Give your opening argument.` },
     ];

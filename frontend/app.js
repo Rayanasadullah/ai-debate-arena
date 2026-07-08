@@ -32,7 +32,7 @@ const els = {
   },
 };
 
-/* ---------------- i18n (English / Deutsch / فارسی) ---------------- */
+/* ---------------- i18n (English / Deutsch) ---------------- */
 
 const I18N = {
   en: {
@@ -140,58 +140,6 @@ const I18N = {
     viewingSaved: "◂ gespeicherte debatte",
     turnsCount: (n, raw) => `${n} ${raw === 1 ? "Nachricht" : "Nachrichten"}`,
   },
-  fa: {
-    dir: "rtl",
-    subtitle: "دو ذهن. دیدگاه‌های متضاد. یک میدان.",
-    placeholder: "هر موضوعی را وارد کنید… مثلاً «هوش مصنوعی زندگی بشر را بهتر می‌کند»",
-    ignite: "شروع مناظره",
-    ariaTag: "پیشرو · خوش‌بین",
-    rexTag: "شکاک · واقع‌گرا",
-    transcriptLabel: "رونوشت زنده",
-    transcriptEmpty: "میدان خاموش است… موضوعی به آن‌ها بدهید.",
-    micJoin: "به مناظره بپیوندید",
-    micListening: "در حال شنیدن… برای پایان بزنید",
-    micHint: "روی میکروفون بزنید و صحبت کنید — هر دو واکنش نشان می‌دهند",
-    micInsecure: "ورودی صوتی به https نیاز دارد",
-    stop: "توقف",
-    you: "شما",
-    statusStandby: "آماده",
-    statusTransmitting: "در حال صحبت",
-    statusListening: "در حال شنیدن",
-    ignited: (topic) => `⚔ مناظره آغاز شد — «${topic}»`,
-    halted: "◼ مناظره متوقف شد",
-    paused: "طرفین بحث خود را به پایان رساندند. برای ادامه، روی میکروفون بزنید.",
-    needTopic: "به آن‌ها موضوعی برای بحث بدهید.",
-    noServer: "دسترسی به سرور ممکن نشد.",
-    micNeedsHttps: "ورودی صوتی به اتصال امن (https) نیاز دارد — در سایت منتشرشده کار می‌کند.",
-    micDenied: "دسترسی به میکروفون رد شد — آن را در تنظیمات مرورگر مجاز کنید.",
-    micNoAccess: "دسترسی به میکروفون ممکن نشد.",
-    micNotSetup: "ورودی صوتی هنوز روی سرور تنظیم نشده است.",
-    micFailed: "متوجه نشدم — لطفاً دوباره تلاش کنید.",
-    listeningNow: "در حال شنیدن…",
-    speakNow: "در حال شنیدن… (اکنون صحبت کنید)",
-    transcribing: "در حال رونویسی…",
-    optionsTitle: "تنظیمات",
-    newDebate: "مناظرهٔ جدید",
-    signIn: "ورود",
-    signInPitch: "برای ذخیرهٔ این مناظره، دسترسی از هر دستگاه و ساختن کتابخانهٔ شخصی خود وارد شوید.",
-    benefit1: "تاریخچهٔ مناظره‌ها روی همهٔ دستگاه‌های شما",
-    benefit2: "کتابخانه‌ای شخصی از همهٔ مناظره‌های گذشته",
-    benefit3: "نشان‌کردن موضوع‌های محبوب",
-    benefit4: "زبان شما برای دفعهٔ بعد به خاطر سپرده می‌شود",
-    signInSoon: "ورود به‌زودی اضافه می‌شود — فعلاً مناظره‌ها در همین مرورگر ذخیره می‌شوند.",
-    profileTitle: "پروفایل",
-    labelName: "نام",
-    labelUsername: "نام کاربری",
-    save: "ذخیره",
-    profileSaved: "پروفایل ذخیره شد.",
-    historyTitle: "کتابخانهٔ مناظره‌ها",
-    clearAll: "پاک کردن همه",
-    noHistory: "هنوز مناظره‌ای ذخیره نشده — یکی را تمام کنید تا اینجا نمایان شود.",
-    confirmClear: "همهٔ مناظره‌های ذخیره‌شده حذف شوند؟ این کار برگشت‌پذیر نیست.",
-    viewingSaved: "◂ مشاهدهٔ مناظرهٔ ذخیره‌شده",
-    turnsCount: (n) => `${n} پیام`,
-  },
 };
 
 let currentLang = "en";
@@ -296,7 +244,7 @@ function persistDebate() {
   renderHistory();
 }
 
-const localeFor = () => (currentLang === "fa" ? "fa-IR" : currentLang);
+const localeFor = () => currentLang;
 
 function formatDate(ts) {
   try {
@@ -306,7 +254,6 @@ function formatDate(ts) {
   }
 }
 
-// Persian uses its own digits — keep numbers consistent with the localized date.
 function localizeNumber(n) {
   try { return Number(n).toLocaleString(localeFor()); } catch { return String(n); }
 }
