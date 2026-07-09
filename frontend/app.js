@@ -9,7 +9,10 @@ const socket = io(BACKEND_URL);
 // Supabase powers accounts + cross-device debate history. The anon key is
 // public by design — access control is enforced by row-level security on
 // the `debates` table, not by keeping this key secret.
-const supabase = window.supabase
+// Named `sb`, not `supabase` — the CDN library itself declares a global
+// `var supabase`, and `const supabase` here would collide with it and throw
+// a page-breaking SyntaxError ("Identifier 'supabase' has already been declared").
+const sb = window.supabase
   ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY)
   : null;
 
@@ -245,8 +248,8 @@ function saveProfile(p) {
    history follows the user across devices. */
 
 async function syncDebateToCloud(debate) {
-  if (!supabase || !currentUser || !debate) return;
-  const { error } = await supabase.from("debates").upsert({
+  if (!sb || !currentUser || !debate) return;
+  const { error } = await sb.from("debates").upsert({
     id: debate.id,
     user_id: currentUser.id,
     topic: debate.topic,
@@ -258,14 +261,14 @@ async function syncDebateToCloud(debate) {
 }
 
 async function deleteDebateCloud(id) {
-  if (!supabase || !currentUser) return;
-  const { error } = await supabase.from("debates").delete().eq("id", id);
+  if (!sb || !currentUser) return;
+  const { error } = await sb.from("debates").delete().eq("id", id);
   if (error) console.error("[cloud] delete failed:", error.message);
 }
 
 async function clearDebatesCloud() {
-  if (!supabase || !currentUser) return;
-  const { error } = await supabase.from("debates").delete().eq("user_id", currentUser.id);
+  if (!sb || !currentUser) return;
+  const { error } = await sb.from("debates").delete().eq("user_id", currentUser.id);
   if (error) console.error("[cloud] clear failed:", error.message);
 }
 
@@ -273,8 +276,8 @@ async function clearDebatesCloud() {
 // id conflicts) — runs right after sign-in so history from other devices
 // shows up immediately.
 async function pullCloudDebates() {
-  if (!supabase || !currentUser) return;
-  const { data, error } = await supabase
+  if (!sb || !currentUser) return;
+  const { data, error } = await sb
     .from("debates")
     .select("*")
     .order("created_at", { ascending: false })
@@ -313,13 +316,13 @@ function updateAuthUI() {
 }
 
 async function initAuth() {
-  if (!supabase) return; // library failed to load — app still works signed-out
-  const { data } = await supabase.auth.getSession();
+  if (!sb) return; // library failed to load — app still works signed-out
+  const { data } = await sb.auth.getSession();
   currentUser = data?.session?.user || null;
   updateAuthUI();
   if (currentUser) pullCloudDebates();
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  sb.auth.onAuthStateChange((_event, session) => {
     const wasSignedIn = !!currentUser;
     currentUser = session?.user || null;
     updateAuthUI();
@@ -329,8 +332,8 @@ async function initAuth() {
 
 if (els.signinBtn) {
   els.signinBtn.addEventListener("click", async () => {
-    if (!supabase) { toast(t("signInFailed")); return; }
-    const { error } = await supabase.auth.signInWithOAuth({
+    if (!sb) { toast(t("signInFailed")); return; }
+    const { error } = await sb.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
     });
@@ -339,7 +342,7 @@ if (els.signinBtn) {
 }
 
 if (els.signoutBtn) {
-  els.signoutBtn.addEventListener("click", () => { if (supabase) supabase.auth.signOut(); });
+  els.signoutBtn.addEventListener("click", () => { if (sb) sb.auth.signOut(); });
 }
 
 let currentDebate = null;    // the debate being recorded right now
