@@ -94,6 +94,32 @@ body::after {
 
 #options-btn:hover svg { transform: rotate(45deg); transition: transform 0.3s; }
 
+.header-left { display: flex; align-items: center; gap: 10px; }
+
+.header-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 168, 255, 0.4);
+  background: rgba(0, 168, 255, 0.1);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.header-login-btn:hover {
+  border-color: rgba(0, 168, 255, 0.7);
+  box-shadow: 0 0 14px rgba(0, 168, 255, 0.25);
+}
+
 /* ======= Language switch ======= */
 .lang-switch {
   display: flex;
@@ -666,6 +692,36 @@ body::after {
 }
 
 .toast.show { transform: translate(-50%, 0); }
+
+/* ======= "Download the summary?" prompt ======= */
+.pdf-offer {
+  position: fixed;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translate(-50%, 0);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px 12px 18px;
+  border-radius: 14px;
+  background: rgba(12, 19, 33, 0.96);
+  border: 1px solid rgba(0, 168, 255, 0.35);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  font-size: 0.82rem;
+  animation: pdf-offer-up 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes pdf-offer-up {
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to   { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.pdf-offer-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.pdf-offer-actions .pill-btn { padding: 9px 16px; font-size: 0.6rem; }
+.pdf-offer-actions .icon-btn { width: 28px; height: 28px; }
 
 /* ======= Mobile ======= */
 @media (max-width: 720px) {

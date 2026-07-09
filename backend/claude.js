@@ -59,6 +59,34 @@ export async function summarizeDebate(topic, messages, language = "en") {
 }
 
 /**
+ * Fast intent check on something the human just said into the mic: are they
+ * signaling they want to end the debate right now? Covers explicit farewells
+ * ("goodbye", "let's stop", "this debate is over") as well as indirect ones
+ * ("I have to go", "I don't have time", "I'm heading out"). Used to trigger a
+ * graceful two-line goodbye instead of continuing to argue.
+ */
+export async function isEndingConversation(text) {
+  const clean = String(text || "").trim();
+  if (!clean) return false;
+
+  try {
+    const res = await client.messages.create({
+      model: MODEL,
+      max_tokens: 5,
+      thinking: { type: "disabled" },
+      output_config: { effort: "low" },
+      system: `You detect whether a message signals the speaker wants to END a conversation right now — either explicitly ("goodbye", "bye", "let's stop", "this debate is over") or indirectly (they say they have to leave, are out of time, are busy, need to go somewhere, etc). Reply with exactly one word, YES or NO — nothing else, no punctuation.`,
+      messages: [{ role: "user", content: clean }],
+    });
+    const block = res.content.find((b) => b.type === "text");
+    return /^\s*yes\b/i.test(block?.text || "");
+  } catch (err) {
+    console.error("[claude] end-of-conversation check failed:", err.message);
+    return false; // never let a hiccup here abruptly cut a debate short
+  }
+}
+
+/**
  * Stream one debate turn from Claude.
  * Calls onDelta(text) for every raw text chunk (live transcript),
  * and onSentence(sentence) each time a complete sentence is available (for TTS).

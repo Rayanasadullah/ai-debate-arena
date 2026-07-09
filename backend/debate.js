@@ -9,7 +9,7 @@
 // full spoken point arrives via "user-said" — so the agents never talk over
 // the human and always react to everything that was said.
 
-import { streamAgentReply } from "./claude.js";
+import { streamAgentReply, isEndingConversation } from "./claude.js";
 import { synthesizeSentence } from "./elevenlabs.js";
 
 const MAX_AGENT_TURNS = 8; // 4 rounds of ARIA + REX per debate segment
@@ -169,15 +169,34 @@ export class DebateSession {
   }
 
   // User finished speaking — inject their point and route to whoever they addressed.
-  onUserMessage(text) {
+  // Async: a quick intent check decides whether this is a normal reply, or the
+  // human signaling (directly or indirectly) that they're done, which instead
+  // triggers a two-line goodbye and a clean stop.
+  async onUserMessage(text) {
     const clean = String(text || "").trim();
     if (!clean) return this.onUserCancel();
 
+    const epoch = this.epoch;
+    const wantsToEnd = await isEndingConversation(clean);
+    // The debate may have been stopped/restarted while we were awaiting the
+    // check above — don't act on a stale result.
+    if (epoch !== this.epoch || !this.active) return;
+
     // If the human named an agent, that agent answers next — even out of turn.
     const target = this.detectAddressedAgent(clean);
-    const note = target ? ` (The human is speaking to ${target} and expects ${target} to answer.)` : "";
+    const note = wantsToEnd
+      ? " (The human is ending the conversation now — reply with ONE brief, warm goodbye line only. Do not continue debating or raise new arguments.)"
+      : target
+      ? ` (The human is speaking to ${target} and expects ${target} to answer.)`
+      : "";
     this.history.push({ role: "user", content: `Human said: ${clean}${note}` });
-    if (target) this.nextAgent = target;
+    if (target && !wantsToEnd) this.nextAgent = target;
+
+    if (wantsToEnd) {
+      this.awaitingUser = false;
+      await this.concludeWithFarewell(epoch);
+      return;
+    }
 
     // Give the debate room to react to the human rather than ending abruptly.
     this.turnCount = Math.max(0, this.turnCount - 2);
@@ -190,6 +209,22 @@ export class DebateSession {
       this.turnCount = 0;
       this.runLoop(this.epoch).catch((err) => this.fail(err));
     }
+  }
+
+  // One short goodbye line from each agent, back to back, then a clean stop.
+  // Reuses generateTurn() as-is so the lines stream, voice, and render in the
+  // transcript exactly like a normal turn.
+  async concludeWithFarewell(epoch) {
+    const first = this.nextAgent;
+    const second = first === "ARIA" ? "REX" : "ARIA";
+
+    await this.generateTurn(first, epoch);
+    if (!this.active || epoch !== this.epoch) return;
+
+    await this.generateTurn(second, epoch);
+    if (!this.active || epoch !== this.epoch) return;
+
+    this.stop();
   }
 
   // Which agent, if any, did the human address by name?

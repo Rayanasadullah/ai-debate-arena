@@ -147,7 +147,11 @@ io.on("connection", (socket) => {
 
   socket.on("turn-played", () => session.onTurnPlayed());
   socket.on("user-interrupt", () => session.onUserInterrupt());
-  socket.on("user-said", ({ text } = {}) => session.onUserMessage(text));
+  // onUserMessage is async (it awaits a quick intent check first) — catch so
+  // a real failure reports cleanly instead of becoming an unhandled rejection.
+  socket.on("user-said", ({ text } = {}) => {
+    session.onUserMessage(text).catch((err) => session.fail(err));
+  });
   socket.on("user-cancel", () => session.onUserCancel());
   socket.on("stop-debate", () => session.stop());
   socket.on("disconnect", () => {

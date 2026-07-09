@@ -38,11 +38,19 @@ const els = {
   accountName: document.getElementById("account-name"),
   accountEmail: document.getElementById("account-email"),
   signoutBtn: document.getElementById("signout-btn"),
+  profileCard: document.getElementById("profile-card"),
   profileName: document.getElementById("profile-name"),
-  profileUsername: document.getElementById("profile-username"),
   profileSave: document.getElementById("profile-save"),
+  headerLoginBtn: document.getElementById("header-login-btn"),
+  headerLoginLabel: document.getElementById("header-login-label"),
+  historyCard: document.getElementById("history-card"),
   historyList: document.getElementById("history-list"),
   historyClear: document.getElementById("history-clear"),
+  pdfOffer: document.getElementById("pdf-offer"),
+  pdfOfferText: document.getElementById("pdf-offer-text"),
+  pdfOfferDownload: document.getElementById("pdf-offer-download"),
+  pdfOfferDownloadLabel: document.getElementById("pdf-offer-download-label"),
+  pdfOfferDismiss: document.getElementById("pdf-offer-dismiss"),
   agents: {
     ARIA: document.getElementById("agent-ARIA"),
     REX: document.getElementById("agent-REX"),
@@ -98,9 +106,10 @@ const I18N = {
     pdfLabel: "PDF",
     pdfBusy: "…",
     pdfFailed: "Couldn't create the PDF — try again.",
+    pdfOfferText: "Want a PDF summary of this debate?",
+    pdfOfferDownload: "Download PDF",
     profileTitle: "Profile",
     labelName: "Name",
-    labelUsername: "Username",
     save: "Save",
     profileSaved: "Profile saved.",
     historyTitle: "Debate library",
@@ -155,9 +164,10 @@ const I18N = {
     pdfLabel: "PDF",
     pdfBusy: "…",
     pdfFailed: "PDF konnte nicht erstellt werden — bitte erneut versuchen.",
+    pdfOfferText: "Möchtest du eine PDF-Zusammenfassung dieser Debatte?",
+    pdfOfferDownload: "PDF herunterladen",
     profileTitle: "Profil",
     labelName: "Name",
-    labelUsername: "Benutzername",
     save: "Speichern",
     profileSaved: "Profil gespeichert.",
     historyTitle: "Debatten-Archiv",
@@ -206,12 +216,14 @@ function applyLanguage(lang) {
   for (let i = 1; i <= 4; i++) document.getElementById(`benefit-${i}`).textContent = t(`benefit${i}`);
   if (els.signinBtnLabel) els.signinBtnLabel.textContent = t("signInGoogle");
   if (els.signoutBtn) els.signoutBtn.textContent = t("signOut");
+  if (els.headerLoginLabel) els.headerLoginLabel.textContent = t("signIn");
   document.getElementById("profile-title").textContent = t("profileTitle");
   document.getElementById("label-name").textContent = t("labelName");
-  document.getElementById("label-username").textContent = t("labelUsername");
   els.profileSave.textContent = t("save");
   document.getElementById("history-title").textContent = t("historyTitle");
   els.historyClear.textContent = t("clearAll");
+  if (els.pdfOfferText) els.pdfOfferText.textContent = t("pdfOfferText");
+  if (els.pdfOfferDownloadLabel) els.pdfOfferDownloadLabel.textContent = t("pdfOfferDownload");
   renderHistory(); // dates + labels are language-dependent
 
   document.querySelectorAll("#lang-switch button").forEach((b) =>
@@ -308,6 +320,12 @@ function updateAuthUI() {
   const signedIn = !!currentUser;
   if (els.signinCard) els.signinCard.hidden = signedIn;
   if (els.accountCard) els.accountCard.hidden = !signedIn;
+  // Profile (name) and debate history are both signed-in-only — a guest
+  // shouldn't see personal data tied to an account they never made.
+  if (els.profileCard) els.profileCard.hidden = !signedIn;
+  if (els.historyCard) els.historyCard.hidden = !signedIn;
+  // The header "Log in" shortcut is only useful for guests.
+  if (els.headerLoginBtn) els.headerLoginBtn.hidden = signedIn;
   if (!signedIn) return;
   const meta = currentUser.user_metadata || {};
   if (els.accountAvatar) els.accountAvatar.src = meta.avatar_url || meta.picture || "";
@@ -345,22 +363,19 @@ if (els.signoutBtn) {
   els.signoutBtn.addEventListener("click", () => { if (sb) sb.auth.signOut(); });
 }
 
-/* ---------------- First-visit welcome splash ----------------
-   A one-time, full-screen intro shown before the arena on someone's first
-   visit: a cycling typewriter title (with a dot-cursor that just trails the
-   last character — no blinking) over a bottom sheet offering Google sign-in
-   or continuing as a guest. Dismissing it (X, a choice, or "continue without
-   an account") sets a localStorage flag so it never shows again. */
+/* ---------------- Welcome splash (first visit + "Log in" header button) ----
+   A full-screen intro — a cycling typewriter title (with a dot-cursor that
+   just trails the last character — no blinking) over a bottom sheet offering
+   Google sign-in or continuing as a guest. Shown automatically once, the
+   first time someone opens the app (a localStorage flag stops it from
+   showing again). After that, anyone who skipped can bring it back any time
+   via the "Log in" button that appears in the header while signed out. */
 const SPLASH_SEEN_KEY = "arena-splash-seen";
 const SPLASH_PHRASES = ["Let's debate", "Two minds.", "One arena.", "AI Debate Arena"];
 
 function initSplash() {
   const splash = document.getElementById("splash-screen");
   if (!splash) return;
-
-  let seen = false;
-  try { seen = !!localStorage.getItem(SPLASH_SEEN_KEY); } catch { /* ignore */ }
-  if (seen) { splash.hidden = true; return; }
 
   const typedEl = document.getElementById("splash-typed");
   const closeBtn = document.getElementById("splash-close");
@@ -372,18 +387,7 @@ function initSplash() {
     splash.hidden = true;
   }
 
-  closeBtn?.addEventListener("click", dismiss);
-  skipBtn?.addEventListener("click", dismiss);
-  googleBtn?.addEventListener("click", () => {
-    dismiss();
-    els.signinBtn?.click(); // reuse the real, already-wired Google sign-in flow
-  });
-
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reducedMotion || !typedEl) {
-    if (typedEl) typedEl.textContent = SPLASH_PHRASES[SPLASH_PHRASES.length - 1];
-    return;
-  }
 
   // Vibration API: supported on Android Chrome, never implemented by iOS
   // Safari (even as a home-screen app) — `navigator.vibrate` is simply
@@ -421,7 +425,34 @@ function initSplash() {
       setTimeout(tick, 30);
     }
   }
-  tick();
+
+  // Reusable: runs automatically on first visit, and again any time someone
+  // taps "Log in" in the header after having skipped it earlier.
+  function openSplash() {
+    splash.hidden = false;
+    if (reducedMotion || !typedEl) {
+      if (typedEl) typedEl.textContent = SPLASH_PHRASES[SPLASH_PHRASES.length - 1];
+      return;
+    }
+    phraseIndex = 0;
+    charIndex = 0;
+    deleting = false;
+    tick();
+  }
+
+  closeBtn?.addEventListener("click", dismiss);
+  skipBtn?.addEventListener("click", dismiss);
+  googleBtn?.addEventListener("click", () => {
+    dismiss();
+    els.signinBtn?.click(); // reuse the real, already-wired Google sign-in flow
+  });
+  els.headerLoginBtn?.addEventListener("click", openSplash);
+
+  let seen = false;
+  try { seen = !!localStorage.getItem(SPLASH_SEEN_KEY); } catch { /* ignore */ }
+  if (seen) { splash.hidden = true; return; }
+
+  openSplash();
 }
 
 let currentDebate = null;    // the debate being recorded right now
@@ -631,6 +662,43 @@ async function handlePdfClick(id, btn) {
   }
 }
 
+// Shown whenever a debate ends (Stop button, or the agents wrapping up on
+// their own after the human signals they're done) — a quick "want the PDF?"
+// prompt above the mic dock. Auto-hides if ignored.
+let pdfOfferTimer = null;
+
+function offerPdf(debate) {
+  if (!debate || !debate.messages?.length) return;
+  if (!els.pdfOffer || !els.pdfOfferDownload || !els.pdfOfferDismiss) return;
+
+  els.pdfOffer.hidden = false;
+  clearTimeout(pdfOfferTimer);
+  pdfOfferTimer = setTimeout(() => { els.pdfOffer.hidden = true; }, 12000);
+
+  const hide = () => {
+    els.pdfOffer.hidden = true;
+    clearTimeout(pdfOfferTimer);
+  };
+
+  // Assigning onclick (not addEventListener) so each new offer replaces the
+  // previous handler instead of stacking one per debate.
+  els.pdfOfferDismiss.onclick = hide;
+  els.pdfOfferDownload.onclick = async () => {
+    const original = els.pdfOfferDownload.textContent;
+    els.pdfOfferDownload.disabled = true;
+    els.pdfOfferDownload.textContent = t("pdfBusy");
+    try {
+      await ensureSummary(debate);
+      downloadDebatePdf(debate);
+      hide();
+    } catch {
+      toast(t("pdfFailed"));
+      els.pdfOfferDownload.disabled = false;
+      els.pdfOfferDownload.textContent = original;
+    }
+  };
+}
+
 // Restart: bank whatever we have, clear the arena, and wait for a fresh topic.
 function startNewDebate() {
   persistDebate();
@@ -653,8 +721,9 @@ function startNewDebate() {
 function openOptions() {
   renderHistory();
   const p = loadProfile();
-  els.profileName.value = p.name || "";
-  els.profileUsername.value = p.username || "";
+  // If they haven't set a name yet, default to the name Google gave us.
+  const googleName = currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || "";
+  els.profileName.value = p.name || googleName;
   els.optionsPanel.hidden = false;
   els.optionsOverlay.hidden = false;
 }
@@ -943,6 +1012,7 @@ socket.on("debate-started", ({ topic }) => {
   stopAllAudio();
   armPlayback(); // fresh debate — accept audio and keep the speech engine warm
   viewingSaved = false;
+  if (els.pdfOffer) els.pdfOffer.hidden = true; // don't let a stale offer linger
   beginRecording(topic);
   addLine("system", null, t("ignited", topic));
   els.startBtn.disabled = false;
@@ -955,6 +1025,7 @@ socket.on("debate-stopped", () => {
   els.stopBtn.hidden = true;
   addLine("system", null, t("halted"));
   persistDebate();
+  offerPdf(currentDebate);
 });
 
 socket.on("turn-start", ({ agent, turnId }) => {
@@ -1272,10 +1343,7 @@ els.optionsOverlay.addEventListener("click", closeOptions);
 els.newBtn.addEventListener("click", startNewDebate);
 
 els.profileSave.addEventListener("click", () => {
-  saveProfile({
-    name: els.profileName.value.trim(),
-    username: els.profileUsername.value.trim(),
-  });
+  saveProfile({ name: els.profileName.value.trim() });
   toast(t("profileSaved"));
 });
 
