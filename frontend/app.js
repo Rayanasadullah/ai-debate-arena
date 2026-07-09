@@ -6,6 +6,13 @@ const BACKEND_URL = window.BACKEND_URL || window.location.origin;
 
 const socket = io(BACKEND_URL);
 
+// Supabase powers accounts + cross-device debate history. The anon key is
+// public by design — access control is enforced by row-level security on
+// the `debates` table, not by keeping this key secret.
+const supabase = window.supabase
+  ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY)
+  : null;
+
 const els = {
   form: document.getElementById("topic-form"),
   input: document.getElementById("topic-input"),
@@ -20,7 +27,14 @@ const els = {
   optionsPanel: document.getElementById("options-panel"),
   optionsOverlay: document.getElementById("options-overlay"),
   optionsClose: document.getElementById("options-close"),
+  signinCard: document.getElementById("signin-card"),
   signinBtn: document.getElementById("signin-btn"),
+  signinBtnLabel: document.getElementById("signin-btn-label"),
+  accountCard: document.getElementById("account-card"),
+  accountAvatar: document.getElementById("account-avatar"),
+  accountName: document.getElementById("account-name"),
+  accountEmail: document.getElementById("account-email"),
+  signoutBtn: document.getElementById("signout-btn"),
   profileName: document.getElementById("profile-name"),
   profileUsername: document.getElementById("profile-username"),
   profileSave: document.getElementById("profile-save"),
@@ -70,12 +84,17 @@ const I18N = {
     optionsTitle: "Options",
     newDebate: "New debate",
     signIn: "Sign in",
+    signInGoogle: "Sign in with Google",
     signInPitch: "Sign in to save this debate, reach it from any device, and build your own debate library.",
     benefit1: "Debate history that follows you across devices",
     benefit2: "A personal library of every past debate",
     benefit3: "Bookmark your favourite topics",
     benefit4: "Your language remembered next time",
-    signInSoon: "Sign-in lands next — for now your debates are saved in this browser.",
+    signOut: "Sign out",
+    signInFailed: "Sign-in failed — please try again.",
+    pdfLabel: "PDF",
+    pdfBusy: "…",
+    pdfFailed: "Couldn't create the PDF — try again.",
     profileTitle: "Profile",
     labelName: "Name",
     labelUsername: "Username",
@@ -122,12 +141,17 @@ const I18N = {
     optionsTitle: "Optionen",
     newDebate: "Neue Debatte",
     signIn: "Anmelden",
+    signInGoogle: "Mit Google anmelden",
     signInPitch: "Melde dich an, um diese Debatte zu speichern, sie auf jedem Gerät zu öffnen und dein eigenes Archiv aufzubauen.",
     benefit1: "Debattenverlauf auf allen deinen Geräten",
     benefit2: "Ein persönliches Archiv aller bisherigen Debatten",
     benefit3: "Lieblingsthemen als Favoriten speichern",
     benefit4: "Deine Sprache wird beim nächsten Mal gemerkt",
-    signInSoon: "Die Anmeldung kommt als Nächstes — vorerst werden deine Debatten in diesem Browser gespeichert.",
+    signOut: "Abmelden",
+    signInFailed: "Anmeldung fehlgeschlagen — bitte erneut versuchen.",
+    pdfLabel: "PDF",
+    pdfBusy: "…",
+    pdfFailed: "PDF konnte nicht erstellt werden — bitte erneut versuchen.",
     profileTitle: "Profil",
     labelName: "Name",
     labelUsername: "Benutzername",
@@ -177,7 +201,8 @@ function applyLanguage(lang) {
   document.getElementById("signin-title").textContent = t("signIn");
   document.getElementById("signin-pitch").textContent = t("signInPitch");
   for (let i = 1; i <= 4; i++) document.getElementById(`benefit-${i}`).textContent = t(`benefit${i}`);
-  els.signinBtn.textContent = t("signIn");
+  if (els.signinBtnLabel) els.signinBtnLabel.textContent = t("signInGoogle");
+  if (els.signoutBtn) els.signoutBtn.textContent = t("signOut");
   document.getElementById("profile-title").textContent = t("profileTitle");
   document.getElementById("label-name").textContent = t("labelName");
   document.getElementById("label-username").textContent = t("labelUsername");
@@ -213,6 +238,110 @@ function saveProfile(p) {
   try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch { /* quota */ }
 }
 
+/* ---------------- Cloud sync (Supabase) ----------------
+   Local storage stays the source of truth the UI reads from — it's
+   synchronous and never blocks the render. When signed in, every save/
+   delete is also mirrored to Supabase in the background, so the same
+   history follows the user across devices. */
+
+async function syncDebateToCloud(debate) {
+  if (!supabase || !currentUser || !debate) return;
+  const { error } = await supabase.from("debates").upsert({
+    id: debate.id,
+    user_id: currentUser.id,
+    topic: debate.topic,
+    transcript: debate.messages,
+    summary: debate.summary || null,
+    language: debate.language || "en",
+  });
+  if (error) console.error("[cloud] save failed:", error.message);
+}
+
+async function deleteDebateCloud(id) {
+  if (!supabase || !currentUser) return;
+  const { error } = await supabase.from("debates").delete().eq("id", id);
+  if (error) console.error("[cloud] delete failed:", error.message);
+}
+
+async function clearDebatesCloud() {
+  if (!supabase || !currentUser) return;
+  const { error } = await supabase.from("debates").delete().eq("user_id", currentUser.id);
+  if (error) console.error("[cloud] clear failed:", error.message);
+}
+
+// Pull every cloud debate down and merge into local storage (cloud wins on
+// id conflicts) — runs right after sign-in so history from other devices
+// shows up immediately.
+async function pullCloudDebates() {
+  if (!supabase || !currentUser) return;
+  const { data, error } = await supabase
+    .from("debates")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(MAX_SAVED);
+  if (error) { console.error("[cloud] load failed:", error.message); return; }
+
+  const cloud = (data || []).map((row) => ({
+    id: row.id,
+    topic: row.topic,
+    language: row.language || "en",
+    startedAt: new Date(row.created_at).getTime(),
+    endedAt: new Date(row.created_at).getTime(),
+    messages: row.transcript || [],
+    summary: row.summary || null,
+  }));
+
+  const cloudIds = new Set(cloud.map((d) => d.id));
+  const localOnly = loadDebates().filter((d) => !cloudIds.has(d.id));
+  saveDebates([...cloud, ...localOnly]);
+  renderHistory();
+}
+
+/* ---------------- Account (Supabase Auth: Google sign-in) ---------------- */
+
+let currentUser = null;
+
+function updateAuthUI() {
+  const signedIn = !!currentUser;
+  if (els.signinCard) els.signinCard.hidden = signedIn;
+  if (els.accountCard) els.accountCard.hidden = !signedIn;
+  if (!signedIn) return;
+  const meta = currentUser.user_metadata || {};
+  if (els.accountAvatar) els.accountAvatar.src = meta.avatar_url || meta.picture || "";
+  if (els.accountName) els.accountName.textContent = meta.full_name || meta.name || currentUser.email || "";
+  if (els.accountEmail) els.accountEmail.textContent = currentUser.email || "";
+}
+
+async function initAuth() {
+  if (!supabase) return; // library failed to load — app still works signed-out
+  const { data } = await supabase.auth.getSession();
+  currentUser = data?.session?.user || null;
+  updateAuthUI();
+  if (currentUser) pullCloudDebates();
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    const wasSignedIn = !!currentUser;
+    currentUser = session?.user || null;
+    updateAuthUI();
+    if (currentUser && !wasSignedIn) pullCloudDebates();
+  });
+}
+
+if (els.signinBtn) {
+  els.signinBtn.addEventListener("click", async () => {
+    if (!supabase) { toast(t("signInFailed")); return; }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) toast(t("signInFailed"));
+  });
+}
+
+if (els.signoutBtn) {
+  els.signoutBtn.addEventListener("click", () => { if (supabase) supabase.auth.signOut(); });
+}
+
 let currentDebate = null;    // the debate being recorded right now
 let viewingSaved = false;    // true while a past debate is shown read-only
 const turnText = new Map();  // turnId → the agent's accumulated text this turn
@@ -242,6 +371,7 @@ function persistDebate() {
   rest.unshift(currentDebate);
   saveDebates(rest);
   renderHistory();
+  syncDebateToCloud(currentDebate);
 }
 
 const localeFor = () => currentLang;
@@ -287,6 +417,12 @@ function renderHistory() {
     open.append(topic, meta);
     open.addEventListener("click", () => openSavedDebate(d.id));
 
+    const pdf = document.createElement("button");
+    pdf.type = "button";
+    pdf.className = "history-pdf";
+    pdf.textContent = t("pdfLabel");
+    pdf.addEventListener("click", (e) => { e.stopPropagation(); handlePdfClick(d.id, pdf); });
+
     const del = document.createElement("button");
     del.type = "button";
     del.className = "history-del";
@@ -294,7 +430,7 @@ function renderHistory() {
     del.textContent = "✕";
     del.addEventListener("click", (e) => { e.stopPropagation(); deleteDebate(d.id); });
 
-    item.append(open, del);
+    item.append(open, pdf, del);
     els.historyList.appendChild(item);
   }
 }
@@ -302,6 +438,7 @@ function renderHistory() {
 function deleteDebate(id) {
   saveDebates(loadDebates().filter((d) => d.id !== id));
   renderHistory();
+  deleteDebateCloud(id);
 }
 
 // Replay a saved debate into the transcript, read-only.
@@ -329,6 +466,87 @@ function openSavedDebate(id) {
   els.newBtn.hidden = false;
   els.startBtn.disabled = false;
   closeOptions();
+}
+
+/* ---------------- PDF export ----------------
+   Generates a short AI recap of the debate (cached on the debate object so
+   it's only paid for once) and lays it out as a downloadable PDF. */
+
+async function ensureSummary(debate) {
+  if (debate.summary) return debate.summary;
+
+  const res = await fetch(`${BACKEND_URL}/api/summarize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic: debate.topic, messages: debate.messages, language: debate.language }),
+  });
+  if (!res.ok) throw new Error("summarize failed");
+  const { summary } = await res.json();
+  debate.summary = summary;
+
+  const list = loadDebates();
+  const idx = list.findIndex((d) => d.id === debate.id);
+  if (idx !== -1) { list[idx] = { ...list[idx], summary }; saveDebates(list); }
+  syncDebateToCloud(debate);
+
+  return summary;
+}
+
+function downloadDebatePdf(debate) {
+  const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+  if (!jsPDFCtor) { toast(t("pdfFailed")); return; }
+
+  const doc = new jsPDFCtor();
+  const margin = 20;
+  const width = 170;
+  let y = margin;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("AI Debate Arena", margin, y);
+  y += 10;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(120);
+  doc.text(formatDate(debate.startedAt), margin, y);
+  y += 12;
+
+  doc.setTextColor(20);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  const topicLines = doc.splitTextToSize(debate.topic || "", width);
+  doc.text(topicLines, margin, y);
+  y += topicLines.length * 7 + 8;
+
+  doc.setFontSize(11);
+  doc.text("Summary", margin, y);
+  y += 7;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10.5);
+  const summaryLines = doc.splitTextToSize(debate.summary || "", width);
+  doc.text(summaryLines, margin, y);
+
+  const slug = (debate.topic || "debate").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40);
+  doc.save(`debate-${slug || "summary"}.pdf`);
+}
+
+async function handlePdfClick(id, btn) {
+  const debate = loadDebates().find((d) => d.id === id);
+  if (!debate) return;
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t("pdfBusy");
+  try {
+    await ensureSummary(debate);
+    downloadDebatePdf(debate);
+  } catch {
+    toast(t("pdfFailed"));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
 }
 
 // Restart: bank whatever we have, clear the arena, and wait for a fresh topic.
@@ -971,9 +1189,6 @@ els.optionsClose.addEventListener("click", closeOptions);
 els.optionsOverlay.addEventListener("click", closeOptions);
 els.newBtn.addEventListener("click", startNewDebate);
 
-// Sign-in is Phase B (Supabase). Be honest about it rather than faking a flow.
-els.signinBtn.addEventListener("click", () => toast(t("signInSoon")));
-
 els.profileSave.addEventListener("click", () => {
   saveProfile({
     name: els.profileName.value.trim(),
@@ -983,7 +1198,7 @@ els.profileSave.addEventListener("click", () => {
 });
 
 els.historyClear.addEventListener("click", () => {
-  if (confirm(t("confirmClear"))) { saveDebates([]); renderHistory(); }
+  if (confirm(t("confirmClear"))) { saveDebates([]); renderHistory(); clearDebatesCloud(); }
 });
 
 document.addEventListener("keydown", (e) => {
@@ -1003,6 +1218,8 @@ document.querySelectorAll("#lang-switch button").forEach((btn) => {
 let savedLang = "en";
 try { savedLang = localStorage.getItem("arena-lang") || "en"; } catch { /* ignore */ }
 applyLanguage(savedLang);
+
+initAuth();
 
 /* ---------------- PWA service worker ----------------
    Registers only in a secure context (HTTPS or localhost). Over plain-http LAN

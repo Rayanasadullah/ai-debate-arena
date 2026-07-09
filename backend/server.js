@@ -14,6 +14,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 // Imported after dotenv so the modules see the env vars at load time.
 const { DebateSession } = await import("./debate.js");
 const { transcribeAudio } = await import("./scribe.js");
+const { summarizeDebate } = await import("./claude.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -76,6 +77,24 @@ app.post("/api/transcribe", express.raw({ type: "audio/*", limit: "25mb" }), asy
     return res.status(502).json({ error: "Transcription failed." });
   }
   res.json({ text: result.text });
+});
+
+// Short AI recap of a finished debate, used to build the downloadable PDF.
+// Doesn't touch the daily debate cap — it's a cheap, single-shot request.
+app.post("/api/summarize", async (req, res) => {
+  const topic = String(req.body?.topic || "").trim();
+  const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  const language = req.body?.language;
+  if (!topic || !messages.length) {
+    return res.status(400).json({ error: "topic and messages are required" });
+  }
+  try {
+    const summary = await summarizeDebate(topic, messages, language);
+    res.json({ summary });
+  } catch (err) {
+    console.error("[summarize] failed:", err.message);
+    res.status(502).json({ error: "Could not generate a summary." });
+  }
 });
 
 // Remaining daily quota (so the UI or I can check how many debates are left).

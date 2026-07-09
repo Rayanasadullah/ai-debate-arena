@@ -37,6 +37,28 @@ CRITICAL LANGUAGE RULE: You MUST speak entirely in ${name}. Every single word of
 const SENTENCE_RE = /[^.!?]*[.!?]+["')\]]*\s/;
 
 /**
+ * Produce a short, neutral recap of a finished debate — used for the
+ * downloadable PDF. Not streamed: this is a single request/response.
+ */
+export async function summarizeDebate(topic, messages, language = "en") {
+  const langName = LANGUAGE_NAMES[language] ? language : "en";
+  const name = LANGUAGE_NAMES[langName];
+  const transcript = messages
+    .map((m) => `${m.role === "human" ? "Human" : m.role}: ${m.text}`)
+    .join("\n");
+
+  const res = await client.messages.create({
+    model: MODEL,
+    max_tokens: 400,
+    system: `You write short, neutral recaps of debates for someone who didn't watch them. Write 3-5 plain sentences in ${name}, no markdown, no headings. Mention the topic, the core disagreement between ARIA (progressive, optimistic) and REX (skeptical, realist), and how the exchange concluded.`,
+    messages: [{ role: "user", content: `Topic: "${topic}"\n\nTranscript:\n${transcript}` }],
+  });
+
+  const block = res.content.find((b) => b.type === "text");
+  return (block?.text || "").trim();
+}
+
+/**
  * Stream one debate turn from Claude.
  * Calls onDelta(text) for every raw text chunk (live transcript),
  * and onSentence(sentence) each time a complete sentence is available (for TTS).

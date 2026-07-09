@@ -852,6 +852,56 @@ body::after {
 
 .pill-btn:hover { box-shadow: 0 0 18px rgba(0, 168, 255, 0.35); }
 
+.google-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(232, 240, 254, 0.92);
+  border-color: rgba(232, 240, 254, 0.92);
+  color: #1f1f1f;
+}
+
+.google-btn:hover { box-shadow: 0 0 18px rgba(232, 240, 254, 0.35); }
+
+/* Signed-in account summary */
+.account-card {
+  background: linear-gradient(135deg, rgba(0, 168, 255, 0.08), rgba(255, 45, 85, 0.06));
+  border: 1px solid rgba(0, 168, 255, 0.25);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.account-row { display: flex; align-items: center; gap: 12px; }
+
+.account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(0, 168, 255, 0.2);
+  flex: none;
+}
+
+.account-meta { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+
+.account-name {
+  font-size: 0.9rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-email {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-card .text-btn { align-self: flex-start; }
+
 .text-btn {
   background: none;
   border: none;
@@ -924,6 +974,24 @@ body::after {
 }
 
 .history-del:hover { color: var(--rex); }
+
+.history-pdf {
+  flex: none;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 8px;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.history-pdf:hover { color: var(--aria); border-color: rgba(0, 168, 255, 0.5); }
+.history-pdf:disabled { opacity: 0.5; cursor: default; }
 
 /* Read-only banner shown when viewing a saved debate */
 .line-archive {

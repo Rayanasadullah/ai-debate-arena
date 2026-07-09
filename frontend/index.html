@@ -151,8 +151,8 @@
       </button>
     </div>
 
-    <!-- Non-blocking sign-in pitch: explains what an account unlocks -->
-    <section class="panel-section signin-card">
+    <!-- Signed-out: pitch explaining what an account unlocks -->
+    <section class="panel-section signin-card" id="signin-card">
       <h3 id="signin-title">Sign in</h3>
       <p id="signin-pitch" class="signin-pitch"></p>
       <ul class="benefits">
@@ -161,7 +161,27 @@
         <li id="benefit-3"></li>
         <li id="benefit-4"></li>
       </ul>
-      <button id="signin-btn" class="pill-btn" type="button">Sign in</button>
+      <button id="signin-btn" class="pill-btn google-btn" type="button">
+        <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.9c1.7-1.57 2.7-3.87 2.7-6.61z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.19l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.95v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.95 10.69A5.41 5.41 0 0 1 3.67 9c0-.59.1-1.16.28-1.69V4.98H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.02l3-2.33z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.98l3 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+        </svg>
+        <span id="signin-btn-label">Sign in with Google</span>
+      </button>
+    </section>
+
+    <!-- Signed-in: account summary + sign out -->
+    <section class="panel-section account-card" id="account-card" hidden>
+      <div class="account-row">
+        <img id="account-avatar" class="account-avatar" alt="" />
+        <div class="account-meta">
+          <span id="account-name" class="account-name"></span>
+          <span id="account-email" class="account-email"></span>
+        </div>
+      </div>
+      <button id="signout-btn" class="text-btn" type="button">Sign out</button>
     </section>
 
     <section class="panel-section">
@@ -184,10 +204,19 @@
 
   <div id="toast" class="toast" role="status"></div>
 
-  <script>window.BACKEND_URL = "https://ai-debate-arena-53zm.onrender.com";</script>
+  <script>
+    window.BACKEND_URL = "https://ai-debate-arena-53zm.onrender.com";
+    // Public by design: this is the anon/publishable key, meant to ship in
+    // client code. Real access control lives in Supabase's row-level
+    // security policies on the `debates` table, not in keeping this secret.
+    window.SUPABASE_URL = "https://jzlhgdhygptvggklwjms.supabase.co";
+    window.SUPABASE_ANON_KEY = "sb_publishable_WnbJLKDf0Op1tjGYM4IUwg_c-OZO8CY";
+  </script>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="animations.js"></script>
   <script src="app.js"></script>
 </body>
