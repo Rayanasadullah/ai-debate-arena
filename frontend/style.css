@@ -16,6 +16,12 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* Defensive catch-all: any element styled with display: flex/grid/block that
+   also gets toggled via the `hidden` attribute needs this, because author
+   CSS always beats the browser's default `[hidden] { display: none }` rule.
+   Without it, JS can set hidden=true and the element still renders. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   background: var(--bg);
@@ -764,11 +770,6 @@ body::after {
   padding-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
-
-/* `display: flex` above beats the browser's default `[hidden] { display: none }`
-   rule (author styles win over user-agent styles), so signin-card/account-card
-   would stay visible even while JS sets hidden=true without this override. */
-.panel-section[hidden] { display: none; }
 
 .panel-section:last-child { border-bottom: none; }
 
