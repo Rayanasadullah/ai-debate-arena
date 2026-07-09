@@ -765,6 +765,11 @@ body::after {
   border-bottom: 1px solid var(--line);
 }
 
+/* `display: flex` above beats the browser's default `[hidden] { display: none }`
+   rule (author styles win over user-agent styles), so signin-card/account-card
+   would stay visible even while JS sets hidden=true without this override. */
+.panel-section[hidden] { display: none; }
+
 .panel-section:last-child { border-bottom: none; }
 
 .panel-section h3 {
