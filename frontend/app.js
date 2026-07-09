@@ -345,6 +345,85 @@ if (els.signoutBtn) {
   els.signoutBtn.addEventListener("click", () => { if (sb) sb.auth.signOut(); });
 }
 
+/* ---------------- First-visit welcome splash ----------------
+   A one-time, full-screen intro shown before the arena on someone's first
+   visit: a cycling typewriter title (with a dot-cursor that just trails the
+   last character — no blinking) over a bottom sheet offering Google sign-in
+   or continuing as a guest. Dismissing it (X, a choice, or "continue without
+   an account") sets a localStorage flag so it never shows again. */
+const SPLASH_SEEN_KEY = "arena-splash-seen";
+const SPLASH_PHRASES = ["Let's debate", "Two minds.", "One arena.", "AI Debate Arena"];
+
+function initSplash() {
+  const splash = document.getElementById("splash-screen");
+  if (!splash) return;
+
+  let seen = false;
+  try { seen = !!localStorage.getItem(SPLASH_SEEN_KEY); } catch { /* ignore */ }
+  if (seen) { splash.hidden = true; return; }
+
+  const typedEl = document.getElementById("splash-typed");
+  const closeBtn = document.getElementById("splash-close");
+  const googleBtn = document.getElementById("splash-google-btn");
+  const skipBtn = document.getElementById("splash-skip-btn");
+
+  function dismiss() {
+    try { localStorage.setItem(SPLASH_SEEN_KEY, "1"); } catch { /* ignore */ }
+    splash.hidden = true;
+  }
+
+  closeBtn?.addEventListener("click", dismiss);
+  skipBtn?.addEventListener("click", dismiss);
+  googleBtn?.addEventListener("click", () => {
+    dismiss();
+    els.signinBtn?.click(); // reuse the real, already-wired Google sign-in flow
+  });
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reducedMotion || !typedEl) {
+    if (typedEl) typedEl.textContent = SPLASH_PHRASES[SPLASH_PHRASES.length - 1];
+    return;
+  }
+
+  // Vibration API: supported on Android Chrome, never implemented by iOS
+  // Safari (even as a home-screen app) — `navigator.vibrate` is simply
+  // undefined there, so this guard makes the buzz a no-op on iPhone rather
+  // than an error.
+  const buzz = (ms) => { try { navigator.vibrate?.(ms); } catch { /* ignore */ } };
+
+  let phraseIndex = 0;
+  let charIndex = 0;
+  let deleting = false;
+
+  function tick() {
+    if (splash.hidden) return; // stop once dismissed
+    const phrase = SPLASH_PHRASES[phraseIndex];
+
+    if (!deleting) {
+      charIndex++;
+      typedEl.textContent = phrase.slice(0, charIndex);
+      buzz(8);
+      if (charIndex === phrase.length) {
+        deleting = true;
+        setTimeout(tick, 1100);
+        return;
+      }
+      setTimeout(tick, 65);
+    } else {
+      charIndex--;
+      typedEl.textContent = phrase.slice(0, charIndex);
+      if (charIndex === 0) {
+        deleting = false;
+        phraseIndex = (phraseIndex + 1) % SPLASH_PHRASES.length;
+        setTimeout(tick, 350);
+        return;
+      }
+      setTimeout(tick, 30);
+    }
+  }
+  tick();
+}
+
 let currentDebate = null;    // the debate being recorded right now
 let viewingSaved = false;    // true while a past debate is shown read-only
 const turnText = new Map();  // turnId → the agent's accumulated text this turn
@@ -1223,6 +1302,7 @@ try { savedLang = localStorage.getItem("arena-lang") || "en"; } catch { /* ignor
 applyLanguage(savedLang);
 
 initAuth();
+initSplash();
 
 /* ---------------- PWA service worker ----------------
    Registers only in a secure context (HTTPS or localhost). Over plain-http LAN
