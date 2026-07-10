@@ -43,6 +43,10 @@ const els = {
   profileCard: document.getElementById("profile-card"),
   profileName: document.getElementById("profile-name"),
   profileSave: document.getElementById("profile-save"),
+  profileNameEdit: document.getElementById("profile-name-edit"),
+  profileNameDisplay: document.getElementById("profile-name-display"),
+  profileNameValue: document.getElementById("profile-name-value"),
+  profileNameEditBtn: document.getElementById("profile-name-edit-btn"),
   profileToggle: document.getElementById("profile-toggle"),
   profileDetails: document.getElementById("profile-details"),
   profileChevron: document.getElementById("profile-chevron"),
@@ -139,6 +143,7 @@ const I18N = {
     profileTitle: "Profile",
     labelName: "Name",
     save: "Save",
+    editName: "Edit name",
     profileSaved: "Profile saved.",
     historyTitle: "Debate library",
     clearAll: "Clear all",
@@ -215,6 +220,7 @@ const I18N = {
     profileTitle: "Profil",
     labelName: "Name",
     save: "Speichern",
+    editName: "Namen bearbeiten",
     profileSaved: "Profil gespeichert.",
     historyTitle: "Debatten-Archiv",
     clearAll: "Alle löschen",
@@ -280,7 +286,13 @@ function applyLanguage(lang) {
   if (els.headerLoginLabel) els.headerLoginLabel.textContent = t("signIn");
   if (els.profileSummaryTitle) els.profileSummaryTitle.textContent = t("profileTitle");
   document.getElementById("label-name").textContent = t("labelName");
+  const labelNameDisplay = document.getElementById("label-name-display");
+  if (labelNameDisplay) labelNameDisplay.textContent = t("labelName");
   els.profileSave.textContent = t("save");
+  if (els.profileNameEditBtn) {
+    els.profileNameEditBtn.setAttribute("aria-label", t("editName"));
+    els.profileNameEditBtn.title = t("editName");
+  }
   if (els.themeDarkLabel) els.themeDarkLabel.textContent = t("themeDark");
   if (els.themeLightLabel) els.themeLightLabel.textContent = t("themeLight");
   document.getElementById("history-title").textContent = t("historyTitle");
@@ -369,6 +381,28 @@ function renderProfileSummary() {
   if (joined) parts.push(t("memberSince", joined));
   parts.push(t("debateCount", count));
   els.profileSummarySub.textContent = parts.join(" · ");
+}
+
+/* ---------------- Profile name field (edit ⇄ display) ----------------
+   Only the name row itself switches modes on Save — not the whole Profile
+   panel. Once a name is saved, show it as plain text with a pencil to edit;
+   only show the blank input when there's nothing saved yet, or the human
+   tapped the pencil. */
+
+function showProfileNameField(mode) {
+  const editing = mode === "edit";
+  if (els.profileNameEdit) els.profileNameEdit.hidden = !editing;
+  if (els.profileNameDisplay) els.profileNameDisplay.hidden = editing;
+}
+
+function syncProfileNameField() {
+  const saved = (loadProfile().name || "").trim();
+  if (saved) {
+    if (els.profileNameValue) els.profileNameValue.textContent = saved;
+    showProfileNameField("display");
+  } else {
+    showProfileNameField("edit");
+  }
 }
 
 /* ---------------- Cloud sync (Supabase) ----------------
@@ -492,15 +526,18 @@ if (els.signoutBtn) {
   els.signoutBtn.addEventListener("click", () => { if (sb) sb.auth.signOut(); });
 }
 
-/* ---------------- Welcome splash (first visit + "Log in" header button) ----
+/* ---------------- Welcome splash (every visit + "Log in" header button) ----
    A full-screen intro — a cycling typewriter title (with a dot-cursor that
    just trails the last character — no blinking) over a bottom sheet offering
-   Google sign-in or continuing as a guest. Shown automatically once, the
-   first time someone opens the app (a localStorage flag stops it from
-   showing again). After that, anyone who skipped can bring it back any time
-   via the "Log in" button that appears in the header while signed out. */
+   Google sign-in or continuing as a guest. Plays automatically for a couple
+   of seconds on EVERY page load (signed in or not — it's just a nice intro),
+   then fades itself out. Anyone can also bring it back deliberately any time
+   via the "Log in" button in the header while signed out — that version
+   waits for them, it doesn't auto-dismiss. */
 const SPLASH_SEEN_KEY = "arena-splash-seen";
 const SPLASH_PHRASES = ["Let's debate", "Two minds.", "One arena.", "AI Debate Arena"];
+const SPLASH_AUTO_DISMISS_MS = 2600; // "a couple of seconds", then fade into the app
+const SPLASH_FADE_MS = 400;
 
 function initSplash() {
   const splash = document.getElementById("splash-screen");
@@ -511,9 +548,16 @@ function initSplash() {
   const googleBtn = document.getElementById("splash-google-btn");
   const skipBtn = document.getElementById("splash-skip-btn");
 
+  let autoDismissTimer = null;
+
   function dismiss() {
+    clearTimeout(autoDismissTimer);
     try { localStorage.setItem(SPLASH_SEEN_KEY, "1"); } catch { /* ignore */ }
-    splash.hidden = true;
+    splash.classList.add("fading"); // fade out instead of an abrupt cut
+    setTimeout(() => {
+      splash.hidden = true;
+      splash.classList.remove("fading");
+    }, SPLASH_FADE_MS);
   }
 
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -555,10 +599,15 @@ function initSplash() {
     }
   }
 
-  // Reusable: runs automatically on first visit, and again any time someone
-  // taps "Log in" in the header after having skipped it earlier.
-  function openSplash() {
+  // Reusable: runs automatically on every page load (autoDismiss = true, so
+  // it's a brief intro that fades itself out), and again any time someone
+  // taps "Log in" in the header (autoDismiss = false — that's a deliberate
+  // request to sign in, so it should wait for them, not vanish on its own).
+  function openSplash(autoDismiss) {
+    clearTimeout(autoDismissTimer);
+    splash.classList.remove("fading");
     splash.hidden = false;
+    if (autoDismiss) autoDismissTimer = setTimeout(dismiss, SPLASH_AUTO_DISMISS_MS);
     if (reducedMotion || !typedEl) {
       if (typedEl) typedEl.textContent = SPLASH_PHRASES[SPLASH_PHRASES.length - 1];
       return;
@@ -575,13 +624,9 @@ function initSplash() {
     dismiss();
     els.signinBtn?.click(); // reuse the real, already-wired Google sign-in flow
   });
-  els.headerLoginBtn?.addEventListener("click", openSplash);
+  els.headerLoginBtn?.addEventListener("click", () => openSplash(false));
 
-  let seen = false;
-  try { seen = !!localStorage.getItem(SPLASH_SEEN_KEY); } catch { /* ignore */ }
-  if (seen) { splash.hidden = true; return; }
-
-  openSplash();
+  openSplash(true); // plays on every visit now, not just the first
 }
 
 let currentDebate = null;    // the debate being recorded right now
@@ -916,6 +961,7 @@ function openOptions() {
   // If they haven't set a name yet, default to the name Google gave us.
   const googleName = currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || "";
   els.profileName.value = p.name || googleName;
+  syncProfileNameField(); // saved name → display + pencil; nothing saved → blank input
   renderProfileSummary();
   // Collapsed by default each time the drawer opens — keeps it a summary row,
   // not a wall of settings, until the person actually wants to look.
@@ -1591,12 +1637,19 @@ els.profileSave.addEventListener("click", () => {
   saveProfile({ name });
   socket.emit("update-name", { name }); // so ARIA/REX pick it up even mid-debate
   renderProfileSummary(); // show the saved name in the collapsed summary row
-  // Collapse back to the summary row instead of leaving the field sitting open.
-  if (els.profileDetails) els.profileDetails.hidden = true;
-  if (els.profileToggle) els.profileToggle.setAttribute("aria-expanded", "false");
-  if (els.profileChevron) els.profileChevron.classList.remove("open");
+  // Only the name field itself closes back to plain text + a pencil to edit —
+  // the rest of the Profile panel (theme, etc.) stays open as it was.
+  syncProfileNameField();
   toast(t("profileSaved"));
 });
+
+if (els.profileNameEditBtn) {
+  els.profileNameEditBtn.addEventListener("click", () => {
+    els.profileName.value = (loadProfile().name || "").trim();
+    showProfileNameField("edit");
+    els.profileName.focus();
+  });
+}
 
 if (els.profileToggle) {
   els.profileToggle.addEventListener("click", () => {
