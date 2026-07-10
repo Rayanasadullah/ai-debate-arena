@@ -800,6 +800,27 @@ body::after {
 
   .transcript { height: 220px; }
   .line { max-width: 92%; }
+
+  /* Mic dock: up to 4 buttons (mic + pause + stop + new) can be visible at
+     once during an active debate — at full desktop width/padding they don't
+     fit a phone screen and overflow off both edges. Pause/Stop collapse to
+     icon-only circles (their text label is hidden, `aria-label` covers
+     accessibility) and the mic button's own padding shrinks a bit too, so
+     everything actually stays on screen. */
+  .dock-row { gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+  .mic-btn { padding: 12px 18px; gap: 6px; font-size: 0.66rem; }
+
+  .pause-btn,
+  .stop-btn {
+    padding: 0;
+    width: 44px;
+    height: 44px;
+    justify-content: center;
+    gap: 0;
+  }
+  .pause-btn .pause-label,
+  .stop-btn .stop-label { display: none; }
 }
 
 /* ======= New debate button ======= */
@@ -827,6 +848,21 @@ body::after {
 .new-btn:hover {
   border-color: rgba(0, 168, 255, 0.6);
   box-shadow: 0 0 20px rgba(0, 168, 255, 0.3);
+}
+
+/* Icon-only on mobile too — see the mic-dock note further up for why
+   (New debate can be visible at the same time as Pause/Stop). This has to
+   live in its own media block after the base .new-btn rule above (not
+   inside the earlier mobile block) so it actually wins the cascade. */
+@media (max-width: 720px) {
+  .new-btn {
+    padding: 0;
+    width: 44px;
+    height: 44px;
+    justify-content: center;
+    gap: 0;
+  }
+  .new-btn .new-label { display: none; }
 }
 
 /* ======= Options drawer ======= */
