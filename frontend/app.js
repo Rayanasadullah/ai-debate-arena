@@ -626,7 +626,20 @@ function initSplash() {
   });
   els.headerLoginBtn?.addEventListener("click", () => openSplash(false));
 
-  openSplash(true); // plays on every visit now, not just the first
+  // Google sign-in does a full-page redirect away and back — Supabase hands
+  // the session back via tokens in the URL (hash for the implicit flow, a
+  // "code" query param for PKCE). That return trip is a real page load, so
+  // without this check the intro would replay right after picking a Google
+  // account — this is a continuation of the same visit, not a fresh one.
+  const returningFromSignIn =
+    /(^|[#&])access_token=/.test(window.location.hash) ||
+    /(^|[?&])code=/.test(window.location.search);
+  if (returningFromSignIn) {
+    splash.hidden = true;
+    return;
+  }
+
+  openSplash(true); // plays on every genuinely fresh visit
 }
 
 let currentDebate = null;    // the debate being recorded right now
