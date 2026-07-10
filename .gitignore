@@ -5,3 +5,4 @@ backend/.env
 .DS_Store
 deno.lock
 voice-samples/
+linkedin-launch-post.md

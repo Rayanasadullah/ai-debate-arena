@@ -15,6 +15,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 const { DebateSession } = await import("./debate.js");
 const { transcribeAudio } = await import("./scribe.js");
 const { summarizeDebate } = await import("./claude.js");
+const { verifyUser, sendFeedback } = await import("./feedback.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -94,6 +95,35 @@ app.post("/api/summarize", async (req, res) => {
   } catch (err) {
     console.error("[summarize] failed:", err.message);
     res.status(502).json({ error: "Could not generate a summary." });
+  }
+});
+
+// Feedback: only accepted from a real signed-in user (verified against
+// Supabase using their access token), then emailed to the developer via
+// Resend. Doesn't touch the daily debate cap.
+app.post("/api/feedback", async (req, res) => {
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const user = await verifyUser(token);
+  if (!user) {
+    return res.status(401).json({ error: "Please sign in to send feedback." });
+  }
+  const message = String(req.body?.message || "").trim();
+  if (!message || message.length > 4000) {
+    return res.status(400).json({ error: "Feedback message is required (max 4000 characters)." });
+  }
+  try {
+    await sendFeedback({
+      name: user.user_metadata?.full_name || user.user_metadata?.name || user.email,
+      email: user.email,
+      message,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[feedback] failed:", err.message);
+    if (err.code === "not_configured") {
+      return res.status(501).json({ error: "Feedback isn't set up on the server yet." });
+    }
+    res.status(502).json({ error: "Could not send feedback. Try again in a moment." });
   }
 });
 

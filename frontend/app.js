@@ -41,6 +41,27 @@ const els = {
   profileCard: document.getElementById("profile-card"),
   profileName: document.getElementById("profile-name"),
   profileSave: document.getElementById("profile-save"),
+  profileToggle: document.getElementById("profile-toggle"),
+  profileDetails: document.getElementById("profile-details"),
+  profileChevron: document.getElementById("profile-chevron"),
+  profileAvatarMini: document.getElementById("profile-avatar-mini"),
+  profileSummaryTitle: document.getElementById("profile-summary-title"),
+  profileSummarySub: document.getElementById("profile-summary-sub"),
+  themeDarkBtn: document.getElementById("theme-dark-btn"),
+  themeLightBtn: document.getElementById("theme-light-btn"),
+  themeDarkLabel: document.getElementById("theme-dark-label"),
+  themeLightLabel: document.getElementById("theme-light-label"),
+  feedbackCard: document.getElementById("feedback-card"),
+  feedbackOpenBtn: document.getElementById("feedback-open-btn"),
+  feedbackOpenLabel: document.getElementById("feedback-open-label"),
+  feedbackOverlay: document.getElementById("feedback-overlay"),
+  feedbackModal: document.getElementById("feedback-modal"),
+  feedbackClose: document.getElementById("feedback-close"),
+  feedbackModalTitle: document.getElementById("feedback-modal-title"),
+  feedbackModalSub: document.getElementById("feedback-modal-sub"),
+  feedbackText: document.getElementById("feedback-text"),
+  feedbackSubmit: document.getElementById("feedback-submit"),
+  feedbackSubmitLabel: document.getElementById("feedback-submit-label"),
   headerLoginBtn: document.getElementById("header-login-btn"),
   headerLoginLabel: document.getElementById("header-login-label"),
   historyCard: document.getElementById("history-card"),
@@ -118,6 +139,19 @@ const I18N = {
     confirmClear: "Delete every saved debate? This can't be undone.",
     viewingSaved: "◂ viewing a saved debate",
     turnsCount: (n, raw) => `${n} ${raw === 1 ? "message" : "messages"}`,
+    themeDark: "Dark",
+    themeLight: "Light",
+    memberSince: (date) => `Member since ${date}`,
+    debateCount: (n) => `${n} ${n === 1 ? "debate" : "debates"} so far`,
+    sendFeedback: "Send feedback",
+    feedbackTitle: "We'd love to hear from you",
+    feedbackSub: "This is an early build — tell us what's working, what's broken, or what you'd want next.",
+    feedbackPlaceholder: "Type your feedback…",
+    feedbackSending: "Sending…",
+    feedbackSent: "Thanks — feedback sent!",
+    feedbackFailed: "Couldn't send that — please try again.",
+    feedbackEmpty: "Write something before sending.",
+    feedbackSignInFirst: "Sign in first to send feedback.",
   },
   de: {
     dir: "ltr",
@@ -176,6 +210,19 @@ const I18N = {
     confirmClear: "Alle gespeicherten Debatten löschen? Das lässt sich nicht rückgängig machen.",
     viewingSaved: "◂ gespeicherte debatte",
     turnsCount: (n, raw) => `${n} ${raw === 1 ? "Nachricht" : "Nachrichten"}`,
+    themeDark: "Dunkel",
+    themeLight: "Hell",
+    memberSince: (date) => `Mitglied seit ${date}`,
+    debateCount: (n) => `${n} ${n === 1 ? "Debatte" : "Debatten"} bisher`,
+    sendFeedback: "Feedback senden",
+    feedbackTitle: "Wir freuen uns auf dein Feedback",
+    feedbackSub: "Das ist eine frühe Version — sag uns, was funktioniert, was kaputt ist, oder was du dir wünschst.",
+    feedbackPlaceholder: "Dein Feedback…",
+    feedbackSending: "Wird gesendet…",
+    feedbackSent: "Danke — Feedback gesendet!",
+    feedbackFailed: "Konnte nicht gesendet werden — bitte erneut versuchen.",
+    feedbackEmpty: "Schreib etwas, bevor du sendest.",
+    feedbackSignInFirst: "Melde dich zuerst an, um Feedback zu senden.",
   },
 };
 
@@ -217,13 +264,21 @@ function applyLanguage(lang) {
   if (els.signinBtnLabel) els.signinBtnLabel.textContent = t("signInGoogle");
   if (els.signoutBtn) els.signoutBtn.textContent = t("signOut");
   if (els.headerLoginLabel) els.headerLoginLabel.textContent = t("signIn");
-  document.getElementById("profile-title").textContent = t("profileTitle");
+  if (els.profileSummaryTitle) els.profileSummaryTitle.textContent = t("profileTitle");
   document.getElementById("label-name").textContent = t("labelName");
   els.profileSave.textContent = t("save");
+  if (els.themeDarkLabel) els.themeDarkLabel.textContent = t("themeDark");
+  if (els.themeLightLabel) els.themeLightLabel.textContent = t("themeLight");
   document.getElementById("history-title").textContent = t("historyTitle");
   els.historyClear.textContent = t("clearAll");
   if (els.pdfOfferText) els.pdfOfferText.textContent = t("pdfOfferText");
   if (els.pdfOfferDownloadLabel) els.pdfOfferDownloadLabel.textContent = t("pdfOfferDownload");
+  if (els.feedbackOpenLabel) els.feedbackOpenLabel.textContent = t("sendFeedback");
+  if (els.feedbackModalTitle) els.feedbackModalTitle.textContent = t("feedbackTitle");
+  if (els.feedbackModalSub) els.feedbackModalSub.textContent = t("feedbackSub");
+  if (els.feedbackText) els.feedbackText.placeholder = t("feedbackPlaceholder");
+  if (els.feedbackSubmitLabel) els.feedbackSubmitLabel.textContent = t("sendFeedback");
+  renderProfileSummary(); // "N debates so far" is language-dependent
   renderHistory(); // dates + labels are language-dependent
 
   document.querySelectorAll("#lang-switch button").forEach((b) =>
@@ -251,6 +306,39 @@ function loadProfile() {
 }
 function saveProfile(p) {
   try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch { /* quota */ }
+}
+
+/* ---------------- Theme (dark / light) ----------------
+   Scoped to the Options drawer and its modals — the neon debate stage keeps
+   its signature look either way, since that's the app's visual identity. */
+
+const THEME_KEY = "arena-theme";
+
+function loadTheme() {
+  try { return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"; } catch { return "dark"; }
+}
+function applyTheme(theme) {
+  const t = theme === "light" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", t);
+  if (els.themeDarkBtn) els.themeDarkBtn.classList.toggle("active", t === "dark");
+  if (els.themeLightBtn) els.themeLightBtn.classList.toggle("active", t === "light");
+  try { localStorage.setItem(THEME_KEY, t); } catch { /* ignore */ }
+}
+
+/* ---------------- Profile summary (member since + debate count) ---------------- */
+
+function renderProfileSummary() {
+  if (!els.profileSummarySub || !currentUser) return;
+  const meta = currentUser.user_metadata || {};
+  if (els.profileAvatarMini) els.profileAvatarMini.src = meta.avatar_url || meta.picture || "";
+  const joined = currentUser.created_at
+    ? new Date(currentUser.created_at).toLocaleDateString(currentLang === "de" ? "de-DE" : "en-US", { year: "numeric", month: "short" })
+    : "";
+  const count = loadDebates().length;
+  const parts = [];
+  if (joined) parts.push(t("memberSince", joined));
+  parts.push(t("debateCount", count));
+  els.profileSummarySub.textContent = parts.join(" · ");
 }
 
 /* ---------------- Cloud sync (Supabase) ----------------
@@ -724,6 +812,12 @@ function openOptions() {
   // If they haven't set a name yet, default to the name Google gave us.
   const googleName = currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || "";
   els.profileName.value = p.name || googleName;
+  renderProfileSummary();
+  // Collapsed by default each time the drawer opens — keeps it a summary row,
+  // not a wall of settings, until the person actually wants to look.
+  if (els.profileDetails) els.profileDetails.hidden = true;
+  if (els.profileToggle) els.profileToggle.setAttribute("aria-expanded", "false");
+  if (els.profileChevron) els.profileChevron.classList.remove("open");
   els.optionsPanel.hidden = false;
   els.optionsOverlay.hidden = false;
 }
@@ -1347,6 +1441,71 @@ els.profileSave.addEventListener("click", () => {
   toast(t("profileSaved"));
 });
 
+if (els.profileToggle) {
+  els.profileToggle.addEventListener("click", () => {
+    const open = els.profileDetails.hidden;
+    els.profileDetails.hidden = !open;
+    els.profileToggle.setAttribute("aria-expanded", String(open));
+    if (els.profileChevron) els.profileChevron.classList.toggle("open", open);
+  });
+}
+
+if (els.themeDarkBtn) els.themeDarkBtn.addEventListener("click", () => applyTheme("dark"));
+if (els.themeLightBtn) els.themeLightBtn.addEventListener("click", () => applyTheme("light"));
+
+/* ---------------- Feedback modal ---------------- */
+
+function openFeedback() {
+  if (!currentUser) {
+    toast(t("feedbackSignInFirst"));
+    closeOptions();
+    els.headerLoginBtn?.click(); // reuses the same splash sign-in flow as the header button
+    return;
+  }
+  els.feedbackText.value = "";
+  els.feedbackModal.hidden = false;
+  els.feedbackOverlay.hidden = false;
+  els.feedbackText.focus();
+}
+function closeFeedback() {
+  els.feedbackModal.hidden = true;
+  els.feedbackOverlay.hidden = true;
+}
+
+if (els.feedbackOpenBtn) els.feedbackOpenBtn.addEventListener("click", openFeedback);
+if (els.feedbackClose) els.feedbackClose.addEventListener("click", closeFeedback);
+if (els.feedbackOverlay) els.feedbackOverlay.addEventListener("click", closeFeedback);
+
+if (els.feedbackSubmit) {
+  els.feedbackSubmit.addEventListener("click", async () => {
+    const message = els.feedbackText.value.trim();
+    if (!message) { toast(t("feedbackEmpty")); return; }
+    const original = els.feedbackSubmitLabel.textContent;
+    els.feedbackSubmit.disabled = true;
+    els.feedbackSubmitLabel.textContent = t("feedbackSending");
+    try {
+      const { data } = sb ? await sb.auth.getSession() : { data: null };
+      const token = data?.session?.access_token;
+      const res = await fetch(`${BACKEND_URL}/api/feedback`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "failed");
+      toast(t("feedbackSent"));
+      closeFeedback();
+    } catch {
+      toast(t("feedbackFailed"));
+    } finally {
+      els.feedbackSubmit.disabled = false;
+      els.feedbackSubmitLabel.textContent = original;
+    }
+  });
+}
+
 els.historyClear.addEventListener("click", () => {
   if (confirm(t("confirmClear"))) { saveDebates([]); renderHistory(); clearDebatesCloud(); }
 });
@@ -1368,6 +1527,7 @@ document.querySelectorAll("#lang-switch button").forEach((btn) => {
 let savedLang = "en";
 try { savedLang = localStorage.getItem("arena-lang") || "en"; } catch { /* ignore */ }
 applyLanguage(savedLang);
+applyTheme(loadTheme());
 
 initAuth();
 initSplash();

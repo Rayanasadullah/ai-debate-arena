@@ -222,12 +222,49 @@
       <button id="signout-btn" class="text-btn" type="button">Sign out</button>
     </section>
 
-    <!-- Only shown once signed in — there's nothing to save a name against otherwise. -->
-    <section class="panel-section" id="profile-card" hidden>
-      <h3 id="profile-title">Profile</h3>
-      <label class="field-label" id="label-name" for="profile-name">Name</label>
-      <input id="profile-name" class="field" type="text" autocomplete="name" maxlength="60" />
-      <button id="profile-save" class="pill-btn" type="button">Save</button>
+    <!-- Only shown once signed in — there's nothing to save a name against otherwise.
+         Clickable summary row that expands into the actual settings, instead of
+         dumping a bare name field straight into the drawer. -->
+    <section class="panel-section profile-section" id="profile-card" hidden>
+      <button id="profile-toggle" class="profile-summary" type="button" aria-expanded="false">
+        <img id="profile-avatar-mini" class="profile-avatar-mini" alt="" />
+        <span class="profile-summary-text">
+          <span id="profile-summary-title" class="profile-summary-title">Profile</span>
+          <span id="profile-summary-sub" class="profile-summary-sub"></span>
+        </span>
+        <svg id="profile-chevron" class="profile-chevron" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <path d="M7 10l5 5 5-5z"/>
+        </svg>
+      </button>
+
+      <div id="profile-details" class="profile-details" hidden>
+        <label class="field-label" id="label-name" for="profile-name">Name</label>
+        <input id="profile-name" class="field" type="text" autocomplete="name" maxlength="60" />
+        <button id="profile-save" class="pill-btn" type="button">Save</button>
+
+        <div class="profile-divider"></div>
+
+        <span class="field-label" id="label-theme">Theme</span>
+        <div class="theme-toggle" role="group" aria-label="Theme">
+          <button id="theme-dark-btn" class="theme-btn" type="button" data-theme="dark">
+            <span id="theme-dark-label">Dark</span>
+          </button>
+          <button id="theme-light-btn" class="theme-btn" type="button" data-theme="light">
+            <span id="theme-light-label">Light</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feedback — visible to everyone. Signed-in taps open the form;
+         signed-out taps nudge toward signing in first. -->
+    <section class="panel-section" id="feedback-card">
+      <button id="feedback-open-btn" class="pill-btn feedback-btn" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/>
+        </svg>
+        <span id="feedback-open-label">Send feedback</span>
+      </button>
     </section>
 
     <!-- Only shown once signed in — a guest shouldn't see a personal history
@@ -240,6 +277,22 @@
       <div id="history-list" class="history-list"></div>
     </section>
   </aside>
+
+  <!-- ======= Feedback modal ======= -->
+  <div id="feedback-overlay" class="overlay" hidden></div>
+  <div id="feedback-modal" class="feedback-modal" hidden role="dialog" aria-modal="true" aria-labelledby="feedback-modal-title">
+    <button id="feedback-close" class="icon-btn modal-close" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+        <path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.88 18.3 9.17 12 2.88 5.71 4.3 4.29l6.29 6.3 6.3-6.3z"/>
+      </svg>
+    </button>
+    <h3 id="feedback-modal-title">We'd love to hear from you</h3>
+    <p id="feedback-modal-sub">This is an early build — tell us what's working, what's broken, or what you'd want next.</p>
+    <textarea id="feedback-text" class="field feedback-textarea" maxlength="4000" rows="5" placeholder="Type your feedback…"></textarea>
+    <button id="feedback-submit" class="pill-btn" type="button">
+      <span id="feedback-submit-label">Send feedback</span>
+    </button>
+  </div>
 
   <div id="toast" class="toast" role="status"></div>
 
