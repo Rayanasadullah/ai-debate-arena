@@ -717,7 +717,7 @@ body::after {
   position: fixed;
   top: 18px;
   left: 50%;
-  transform: translate(-50%, -160%);
+  transform: translate(-50%, -20px);
   /* Above the options drawer (z-index 21) so confirmations like "Profile
      saved" are actually visible while the drawer is open. */
   z-index: 30;
@@ -728,10 +728,21 @@ body::after {
   color: var(--text);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
-  transition: transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  /* opacity/visibility (not just transform) fully hide it when empty —
+     a percentage-based transform alone left a thin sliver of the empty
+     toast's rounded top edge visible on some phones (looked like a stray
+     red line at the top of the page). */
+  opacity: 0;
+  visibility: hidden;
+  transition: transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.3s ease, visibility 0s linear 0.3s;
 }
 
-.toast.show { transform: translate(-50%, 0); }
+.toast.show {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  visibility: visible;
+  transition: transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.3s ease, visibility 0s;
+}
 
 /* ======= "Download the summary?" prompt ======= */
 .pdf-offer {
@@ -1384,6 +1395,7 @@ body::after {
 }
 
 #feedback-overlay { z-index: 30; }
+#notify-overlay { z-index: 30; }
 
 .modal-close {
   position: absolute;
@@ -1412,43 +1424,118 @@ body::after {
 }
 
 /* ======= Light theme ==========================================
-   Scoped to the Options drawer and its modals (Profile, Feedback) — the
-   debate stage itself keeps the dark neon look in both modes, since that's
-   the app's core visual identity, not just a color scheme.
-   Important: the --text/--panel/--line redefinitions themselves must stay
-   scoped to these two containers (not the bare html[data-theme="light"]
-   root), otherwise they cascade to every descendant on the page, including
-   the main stage title — that was the light-mode readability bug. */
-html[data-theme="light"] .options-panel,
-html[data-theme="light"] .feedback-modal {
+   Applies to the whole page now, not just the Options drawer. The earlier
+   version was intentionally scoped to just the drawer/modals because the
+   *first* attempt at a page-wide light theme had a real readability bug —
+   the title and other stage text became hard to read. That's fixed at the
+   root here (every color below was chosen against a white/near-white
+   background), so it's safe to let it cascade everywhere again. */
+html[data-theme="light"] {
+  --bg: #eef2f7;
   --text: #101623;
   --text-dim: rgba(16, 22, 35, 0.6);
-  --panel: #f3f6fb;
+  --panel: #ffffff;
   --line: rgba(0, 90, 168, 0.18);
 }
 
-html[data-theme="light"] .options-panel { background: var(--panel); }
-html[data-theme="light"] .feedback-modal { background: var(--panel); }
+/* The holographic 3D grid floor and the dark bottom vignette are built for
+   a dark backdrop — on a light page they'd just look like a smudge, so
+   light mode goes with a clean flat background instead. */
+html[data-theme="light"] #bg-canvas,
+html[data-theme="light"] body::after {
+  display: none;
+}
 
-html[data-theme="light"] .options-panel .field,
-html[data-theme="light"] .options-panel .history-item,
-html[data-theme="light"] .options-panel .theme-btn {
-  background: rgba(255, 255, 255, 0.75);
+/* ---- Header ---- */
+html[data-theme="light"] .icon-btn,
+html[data-theme="light"] .lang-switch button {
+  background: #ffffff;
+  border-color: rgba(0, 90, 168, 0.2);
+  color: var(--text-dim);
+  box-shadow: 0 1px 3px rgba(16, 22, 35, 0.08);
+}
+html[data-theme="light"] .lang-switch button.active {
+  color: var(--aria);
+  border-color: rgba(0, 90, 168, 0.5);
+}
+html[data-theme="light"] .header-login-btn {
+  background: rgba(0, 90, 168, 0.08);
+  border-color: rgba(0, 90, 168, 0.35);
+}
+
+/* ---- Topic bar ---- */
+html[data-theme="light"] #topic-input {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(16, 22, 35, 0.06);
+}
+html[data-theme="light"] #topic-input::placeholder { color: rgba(16, 22, 35, 0.35); }
+html[data-theme="light"] #start-btn {
+  background: linear-gradient(135deg, rgba(0, 90, 168, 0.16), rgba(214, 20, 68, 0.12));
   color: var(--text);
 }
 
-html[data-theme="light"] .options-panel .theme-btn.active {
+/* ---- Stage ---- */
+html[data-theme="light"] .vs {
+  color: rgba(16, 22, 35, 0.45);
+  border-color: rgba(16, 22, 35, 0.14);
+  background: #ffffff;
+}
+
+/* ---- Transcript ---- */
+html[data-theme="light"] .transcript { background: #ffffff; box-shadow: 0 1px 3px rgba(16, 22, 35, 0.06); }
+html[data-theme="light"] .transcript:empty::before { color: rgba(16, 22, 35, 0.32); }
+html[data-theme="light"] .line-aria { background: rgba(0, 90, 168, 0.07); border-color: rgba(0, 90, 168, 0.22); }
+html[data-theme="light"] .line-rex { background: rgba(214, 20, 68, 0.07); border-color: rgba(214, 20, 68, 0.22); }
+html[data-theme="light"] .line-human { background: rgba(16, 22, 35, 0.05); border-color: rgba(16, 22, 35, 0.15); }
+
+/* ---- Mic dock ---- */
+html[data-theme="light"] .mic-dock {
+  background: linear-gradient(transparent, rgba(238, 242, 247, 0.96) 40%);
+}
+html[data-theme="light"] .mic-btn,
+html[data-theme="light"] .new-btn {
+  background: #ffffff;
+  border-color: rgba(16, 22, 35, 0.18);
+  box-shadow: 0 1px 3px rgba(16, 22, 35, 0.08);
+}
+html[data-theme="light"] .mic-hint { color: rgba(16, 22, 35, 0.4); }
+html[data-theme="light"] .stop-btn { background: rgba(214, 20, 68, 0.1); color: #d61444; }
+html[data-theme="light"] .stop-btn:hover { border-color: #d61444; }
+html[data-theme="light"] .pause-btn { background: rgba(184, 108, 0, 0.1); color: #b86c00; border-color: rgba(184, 108, 0, 0.5); }
+html[data-theme="light"] .pause-btn:hover { border-color: #b86c00; }
+html[data-theme="light"] .pause-btn.held { background: rgba(0, 90, 168, 0.08); color: var(--aria); }
+
+/* ---- "Download the summary?" prompt ---- */
+html[data-theme="light"] .pdf-offer {
+  background: #ffffff;
+  border-color: rgba(0, 90, 168, 0.25);
+  box-shadow: 0 8px 28px rgba(16, 22, 35, 0.12);
+}
+
+/* ---- Options drawer + modals ---- */
+html[data-theme="light"] .options-panel { background: var(--panel); }
+html[data-theme="light"] .feedback-modal { background: var(--panel); }
+
+html[data-theme="light"] .field,
+html[data-theme="light"] .history-item,
+html[data-theme="light"] .theme-btn {
+  background: rgba(16, 22, 35, 0.03);
+  color: var(--text);
+}
+
+html[data-theme="light"] .theme-btn.active {
   background: rgba(0, 90, 168, 0.12);
   border-color: rgba(0, 90, 168, 0.45);
 }
 
-html[data-theme="light"] .options-panel .pill-btn,
-html[data-theme="light"] .feedback-modal .pill-btn {
+html[data-theme="light"] .pill-btn {
   background: rgba(0, 90, 168, 0.12);
   border-color: rgba(0, 90, 168, 0.4);
 }
 
-html[data-theme="light"] .options-panel .icon-btn,
-html[data-theme="light"] .feedback-modal .icon-btn {
-  border-color: var(--line);
+html[data-theme="light"] .icon-btn { border-color: var(--line); }
+
+html[data-theme="light"] .history-empty,
+html[data-theme="light"] .history-del {
+  color: rgba(16, 22, 35, 0.35);
 }

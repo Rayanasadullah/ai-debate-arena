@@ -319,6 +319,24 @@
     </button>
   </div>
 
+  <!-- ======= "Notify me" modal — shown when the daily debate limit is hit.
+       Separate from Feedback on purpose: guests hit the limit too, and
+       shouldn't have to sign in just to say "I want more". ======= -->
+  <div id="notify-overlay" class="overlay" hidden></div>
+  <div id="notify-modal" class="feedback-modal" hidden role="dialog" aria-modal="true" aria-labelledby="notify-modal-title">
+    <button id="notify-close" class="icon-btn modal-close" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+        <path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.88 18.3 9.17 12 2.88 5.71 4.3 4.29l6.29 6.3 6.3-6.3z"/>
+      </svg>
+    </button>
+    <h3 id="notify-modal-title">Want more debates today?</h3>
+    <p id="notify-modal-sub">You've hit today's free limit. Leave your email and we'll let you know when more debates (or a paid option) are available.</p>
+    <input id="notify-email" class="field" type="email" maxlength="200" placeholder="you@example.com" />
+    <button id="notify-submit" class="pill-btn" type="button">
+      <span id="notify-submit-label">Notify me</span>
+    </button>
+  </div>
+
   <div id="toast" class="toast" role="status"></div>
 
   <!-- ======= "Download the summary?" prompt, shown when a debate ends ======= -->

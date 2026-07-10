@@ -68,6 +68,14 @@ const els = {
   feedbackText: document.getElementById("feedback-text"),
   feedbackSubmit: document.getElementById("feedback-submit"),
   feedbackSubmitLabel: document.getElementById("feedback-submit-label"),
+  notifyOverlay: document.getElementById("notify-overlay"),
+  notifyModal: document.getElementById("notify-modal"),
+  notifyClose: document.getElementById("notify-close"),
+  notifyModalTitle: document.getElementById("notify-modal-title"),
+  notifyModalSub: document.getElementById("notify-modal-sub"),
+  notifyEmail: document.getElementById("notify-email"),
+  notifySubmit: document.getElementById("notify-submit"),
+  notifySubmitLabel: document.getElementById("notify-submit-label"),
   headerLoginBtn: document.getElementById("header-login-btn"),
   headerLoginLabel: document.getElementById("header-login-label"),
   historyCard: document.getElementById("history-card"),
@@ -164,6 +172,14 @@ const I18N = {
     feedbackFailed: "Couldn't send that — please try again.",
     feedbackEmpty: "Write something before sending.",
     feedbackSignInFirst: "Sign in first to send feedback.",
+    notifyTitle: "Want more debates today?",
+    notifySub: "You've hit today's free limit. Leave your email and we'll let you know when more debates (or a paid option) are available.",
+    notifyPlaceholder: "you@example.com",
+    notifyBtn: "Notify me",
+    notifySending: "Sending…",
+    notifySent: "Thanks — we'll let you know!",
+    notifyFailed: "Couldn't send that — please try again.",
+    notifyEmailInvalid: "Please enter a valid email address.",
   },
   de: {
     dir: "ltr",
@@ -241,6 +257,14 @@ const I18N = {
     feedbackFailed: "Konnte nicht gesendet werden — bitte erneut versuchen.",
     feedbackEmpty: "Schreib etwas, bevor du sendest.",
     feedbackSignInFirst: "Melde dich zuerst an, um Feedback zu senden.",
+    notifyTitle: "Möchtest du heute mehr Debatten?",
+    notifySub: "Du hast das heutige kostenlose Limit erreicht. Hinterlasse deine E-Mail und wir melden uns, sobald mehr Debatten (oder eine bezahlte Option) verfügbar sind.",
+    notifyPlaceholder: "du@beispiel.de",
+    notifyBtn: "Benachrichtige mich",
+    notifySending: "Wird gesendet…",
+    notifySent: "Danke — wir melden uns!",
+    notifyFailed: "Konnte nicht gesendet werden — bitte erneut versuchen.",
+    notifyEmailInvalid: "Bitte gib eine gültige E-Mail-Adresse ein.",
   },
 };
 
@@ -304,6 +328,10 @@ function applyLanguage(lang) {
   if (els.feedbackModalSub) els.feedbackModalSub.textContent = t("feedbackSub");
   if (els.feedbackText) els.feedbackText.placeholder = t("feedbackPlaceholder");
   if (els.feedbackSubmitLabel) els.feedbackSubmitLabel.textContent = t("sendFeedback");
+  if (els.notifyModalTitle) els.notifyModalTitle.textContent = t("notifyTitle");
+  if (els.notifyModalSub) els.notifyModalSub.textContent = t("notifySub");
+  if (els.notifyEmail) els.notifyEmail.placeholder = t("notifyPlaceholder");
+  if (els.notifySubmitLabel) els.notifySubmitLabel.textContent = t("notifyBtn");
   renderProfileSummary(); // "N debates so far" is language-dependent
   renderHistory(); // dates + labels are language-dependent
 
@@ -1359,8 +1387,11 @@ socket.on("debate-state", ({ state }) => {
   document.body.dataset.debateState = state;
 });
 
-socket.on("debate-error", ({ message }) => {
+socket.on("debate-error", ({ message, code }) => {
   toast(message);
+  // Hit the daily limit (site-wide or per-person) — offer the "notify me"
+  // interest capture instead of just leaving them with a dead-end error.
+  if (code === "per_user_limit" || code === "site_limit") openNotify();
   els.startBtn.disabled = false;
   els.stopBtn.hidden = true;
   if (els.pauseBtn) els.pauseBtn.hidden = true;
@@ -1403,10 +1434,16 @@ els.form.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ topic }),
     });
-    if (!res.ok) throw new Error((await res.json()).error || "Bad topic");
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(body.error || "Bad topic");
+      err.code = body.code;
+      throw err;
+    }
     socket.emit("start-debate", { topic, language: currentLang, userName: getUserDisplayName() });
   } catch (err) {
     toast(err.message || t("noServer"));
+    if (err.code === "per_user_limit" || err.code === "site_limit") openNotify();
     els.startBtn.disabled = false;
   }
 });
@@ -1725,6 +1762,52 @@ if (els.feedbackSubmit) {
     } finally {
       els.feedbackSubmit.disabled = false;
       els.feedbackSubmitLabel.textContent = original;
+    }
+  });
+}
+
+/* ---------------- "Notify me" modal — shown when the daily limit is hit ---
+   Deliberately separate from Feedback: guests hit the limit too, and this
+   works without signing in. Purchase-intent signal for a future paid tier. */
+
+function openNotify() {
+  if (els.notifyEmail) els.notifyEmail.value = currentUser?.email || "";
+  els.notifyModal.hidden = false;
+  els.notifyOverlay.hidden = false;
+  els.notifyEmail?.focus();
+}
+function closeNotify() {
+  els.notifyModal.hidden = true;
+  els.notifyOverlay.hidden = true;
+}
+
+if (els.notifyClose) els.notifyClose.addEventListener("click", closeNotify);
+if (els.notifyOverlay) els.notifyOverlay.addEventListener("click", closeNotify);
+
+if (els.notifySubmit) {
+  els.notifySubmit.addEventListener("click", async () => {
+    const email = els.notifyEmail.value.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast(t("notifyEmailInvalid"));
+      return;
+    }
+    const original = els.notifySubmitLabel.textContent;
+    els.notifySubmit.disabled = true;
+    els.notifySubmitLabel.textContent = t("notifySending");
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/notify-interest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "failed");
+      toast(t("notifySent"));
+      closeNotify();
+    } catch {
+      toast(t("notifyFailed"));
+    } finally {
+      els.notifySubmit.disabled = false;
+      els.notifySubmitLabel.textContent = original;
     }
   });
 }

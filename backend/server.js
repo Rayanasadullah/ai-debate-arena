@@ -15,7 +15,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 const { DebateSession } = await import("./debate.js");
 const { transcribeAudio } = await import("./scribe.js");
 const { summarizeDebate } = await import("./claude.js");
-const { verifyUser, sendFeedback } = await import("./feedback.js");
+const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -47,7 +47,47 @@ function recordDebate() {
 const capMessage = () =>
   `The arena has hit its free daily limit (${DAILY_LIMIT} debates). It resets at midnight UTC — come back tomorrow!`;
 
+// ---- Per-person daily cap ---------------------------------------------------
+// The site-wide cap above stops the WHOLE app from running up an unbounded
+// bill, but doesn't stop one person from eating the entire day's budget by
+// themselves. This adds a second, per-person limit on top of it. There's no
+// login requirement to start a debate, so "person" is approximated by IP —
+// not perfect (shared networks undercount, VPNs overcount), but a reasonable,
+// low-friction way to keep any one visitor from hogging the shared quota.
+const _rawPerUserLimit = process.env.DAILY_DEBATE_LIMIT_PER_USER;
+const PER_USER_LIMIT =
+  _rawPerUserLimit !== undefined && _rawPerUserLimit !== "" && !Number.isNaN(Number(_rawPerUserLimit))
+    ? Number(_rawPerUserLimit)
+    : 5; // sensible default — plenty for a real visitor, not enough to blow the budget alone
+const perUserUsage = new Map(); // ip -> { date, count }
+
+function clientIp(source) {
+  // Prefer the X-Forwarded-For header (set by Render's proxy) so this reads
+  // the real visitor IP rather than the proxy's internal address. Works for
+  // both an Express `req` and a Socket.IO `socket`.
+  const headers = source.headers || source.handshake?.headers || {};
+  const forwarded = headers["x-forwarded-for"];
+  if (forwarded) return String(forwarded).split(",")[0].trim();
+  return source.ip || source.handshake?.address || "unknown";
+}
+
+function perUserCapReached(ip) {
+  const entry = perUserUsage.get(ip);
+  return !!entry && entry.date === utcDate() && entry.count >= PER_USER_LIMIT;
+}
+function recordUserDebate(ip) {
+  const today = utcDate();
+  const entry = perUserUsage.get(ip);
+  if (entry && entry.date === today) entry.count += 1;
+  else perUserUsage.set(ip, { date: today, count: 1 });
+}
+const perUserCapMessage = () =>
+  `You've reached today's per-person limit (${PER_USER_LIMIT} debates). It resets at midnight UTC — come back tomorrow!`;
+
 const app = express();
+// So req.ip (used by clientIp above) reflects the real visitor behind
+// Render's proxy instead of Render's own internal address.
+app.set("trust proxy", true);
 // The frontend (Netlify) and backend (Render) live on different origins in
 // production, so the REST endpoints below need CORS headers too — the
 // Socket.IO cors option further down only covers the WebSocket connection.
@@ -143,9 +183,41 @@ app.post("/api/start", (req, res) => {
     return res.status(400).json({ error: "Please provide a topic (max 200 characters)." });
   }
   if (capReached()) {
-    return res.status(429).json({ error: capMessage() });
+    return res.status(429).json({ error: capMessage(), code: "site_limit" });
+  }
+  if (perUserCapReached(clientIp(req))) {
+    return res.status(429).json({ error: perUserCapMessage(), code: "per_user_limit" });
   }
   res.json({ sessionId: randomUUID(), topic });
+});
+
+// Notify-me interest capture: shown when someone hits the daily limit and
+// wants more. Not gated behind sign-in (guests hit the limit too) — just an
+// email, emailed straight to the developer via the same Resend setup as
+// Feedback. Lightweight per-IP dedupe so one person can't spam it.
+const notifyInterestSent = new Map(); // ip -> date already notified
+
+app.post("/api/notify-interest", async (req, res) => {
+  const email = String(req.body?.email || "").trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Please provide a valid email address." });
+  }
+  const ip = clientIp(req);
+  const today = utcDate();
+  if (notifyInterestSent.get(ip) === today) {
+    return res.json({ ok: true }); // already recorded today — no need to spam the inbox
+  }
+  try {
+    await notifyInterest(email);
+    notifyInterestSent.set(ip, today);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[notify-interest] failed:", err.message);
+    if (err.code === "not_configured") {
+      return res.status(501).json({ error: "Not set up on the server yet." });
+    }
+    res.status(502).json({ error: "Could not record that. Try again in a moment." });
+  }
 });
 
 const httpServer = createServer(app);
@@ -167,10 +239,16 @@ io.on("connection", (socket) => {
     // without going through POST /api/start. This is where a debate truly begins,
     // so this is where we count it.
     if (capReached()) {
-      socket.emit("debate-error", { message: capMessage() });
+      socket.emit("debate-error", { message: capMessage(), code: "site_limit" });
+      return;
+    }
+    const ip = clientIp(socket);
+    if (perUserCapReached(ip)) {
+      socket.emit("debate-error", { message: perUserCapMessage(), code: "per_user_limit" });
       return;
     }
     recordDebate();
+    recordUserDebate(ip);
     session.stop();
     session.start(clean.slice(0, 200), language, userName);
   });

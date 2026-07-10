@@ -31,9 +31,12 @@ export async function verifyUser(accessToken) {
   }
 }
 
-export async function sendFeedback({ name, email, message }) {
+// Shared low-level sender — both Feedback and the "notify me" interest
+// capture below just need to land an email in the developer's inbox via
+// the same Resend account, with a different subject/body/reply-to each.
+async function sendEmail({ subject, text, replyTo }) {
   if (!RESEND_API_KEY || !FEEDBACK_TO_EMAIL) {
-    const err = new Error("Feedback email is not configured on the server (needs RESEND_API_KEY and FEEDBACK_TO_EMAIL).");
+    const err = new Error("Email is not configured on the server (needs RESEND_API_KEY and FEEDBACK_TO_EMAIL).");
     err.code = "not_configured";
     throw err;
   }
@@ -49,13 +52,33 @@ export async function sendFeedback({ name, email, message }) {
       // is set up.
       from: "AI Debate Arena <onboarding@resend.dev>",
       to: [FEEDBACK_TO_EMAIL],
-      reply_to: email || undefined,
-      subject: `New feedback from ${name || "a user"}`,
-      text: `From: ${name || "Unknown"} <${email || "no email on file"}>\n\n${message}`,
+      reply_to: replyTo || undefined,
+      subject,
+      text,
     }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Resend API error ${res.status}: ${body}`);
   }
+}
+
+export async function sendFeedback({ name, email, message }) {
+  await sendEmail({
+    subject: `New feedback from ${name || "a user"}`,
+    text: `From: ${name || "Unknown"} <${email || "no email on file"}>\n\n${message}`,
+    replyTo: email,
+  });
+}
+
+// "Notify me" interest signal — sent when someone hits the daily debate
+// limit and wants more. This is purchase-intent data for deciding whether
+// (and how) to build a paid tier, kept deliberately separate from Feedback
+// so it doesn't require signing in and doesn't get mixed in with bug reports.
+export async function notifyInterest(email) {
+  await sendEmail({
+    subject: "Debate limit interest — someone wants more debates",
+    text: `${email} hit today's debate limit and asked to be notified when more debates (or a paid tier) are available.`,
+    replyTo: email,
+  });
 }
