@@ -33,12 +33,24 @@ function languageRule(language) {
 CRITICAL LANGUAGE RULE: You MUST speak entirely in ${name}. Every single word of your reply — including reactions and asides — must be natural, fluent ${name}, because your reply is read aloud by a ${name} voice. Never switch to English, even if the topic or the other speaker uses English. Write ${name} the way a native speaker actually talks, not a stiff translation.`;
 }
 
+// If the human has a saved name, let the agents actually use it — like any
+// person would when talking with someone they know, not a scripted refrain.
+function nameRule(userName) {
+  const clean = String(userName || "").trim();
+  if (!clean) return "";
+  return `
+
+The human you're debating with is named ${clean}. Address them by name naturally when it genuinely fits — e.g. reacting to a point they just made, or opening a reply directed at them — the way a person would in real conversation. Don't force it into every line, and never use it as a filler habit.`;
+}
+
 // Matches a complete sentence (ending in . ! or ?) followed by whitespace.
 const SENTENCE_RE = /[^.!?]*[.!?]+["')\]]*\s/;
 
 /**
- * Produce a short, neutral recap of a finished debate — used for the
- * downloadable PDF. Not streamed: this is a single request/response.
+ * Produce a short, neutral, SECTIONED recap of a finished debate — used for
+ * the downloadable PDF (and shown on screen). Returns a structured object
+ * instead of one big paragraph, so it reads like a scannable summary rather
+ * than a wall of text. Not streamed: this is a single request/response.
  */
 export async function summarizeDebate(topic, messages, language = "en") {
   const langName = LANGUAGE_NAMES[language] ? language : "en";
@@ -49,13 +61,39 @@ export async function summarizeDebate(topic, messages, language = "en") {
 
   const res = await client.messages.create({
     model: MODEL,
-    max_tokens: 400,
-    system: `You write short, neutral recaps of debates for someone who didn't watch them. Write 3-5 plain sentences in ${name}, no markdown, no headings. Mention the topic, the core disagreement between ARIA (progressive, optimistic) and REX (skeptical, realist), and how the exchange concluded.`,
+    max_tokens: 600,
+    system: `You write short, neutral recaps of debates for someone who didn't watch them, entirely in ${name}. Reply with ONLY a single valid JSON object — no markdown fences, no commentary before or after — with exactly these string fields:
+{
+  "overview": "1-2 plain sentences introducing the topic and what was at stake.",
+  "ariaTakeaway": "1-2 plain sentences on ARIA's (progressive, optimistic) core argument.",
+  "rexTakeaway": "1-2 plain sentences on REX's (skeptical, realist) core argument.",
+  "howItEnded": "1-2 plain sentences on how the exchange concluded or where it landed.",
+  "nextTopic": "One related follow-up debate topic the human might enjoy next, phrased as a short standalone topic (not a question to the reader)."
+}
+Plain sentences only in every field: no markdown, no headings, no bullet points, no asterisks.`,
     messages: [{ role: "user", content: `Topic: "${topic}"\n\nTranscript:\n${transcript}` }],
   });
 
   const block = res.content.find((b) => b.type === "text");
-  return (block?.text || "").trim();
+  const raw = (block?.text || "").trim();
+
+  try {
+    // Strip an accidental ```json fence if the model adds one anyway.
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      overview: String(parsed.overview || "").trim(),
+      ariaTakeaway: String(parsed.ariaTakeaway || "").trim(),
+      rexTakeaway: String(parsed.rexTakeaway || "").trim(),
+      howItEnded: String(parsed.howItEnded || "").trim(),
+      nextTopic: String(parsed.nextTopic || "").trim(),
+    };
+  } catch (err) {
+    // Fallback: JSON parsing failed — still return something readable rather
+    // than breaking the PDF, by putting everything in one section.
+    console.error("[summarize] JSON parse failed, falling back to plain text:", err.message);
+    return { overview: raw, ariaTakeaway: "", rexTakeaway: "", howItEnded: "", nextTopic: "" };
+  }
 }
 
 /**
@@ -87,18 +125,49 @@ export async function isEndingConversation(text) {
 }
 
 /**
+ * Fast intent check on something the human just said: are they asking to
+ * change the debate to a new topic ("let's change the topic", "actually,
+ * talk about X instead", "sorry, new topic — X")? If so, extracts the new
+ * topic too, so the agents can be told explicitly what to pivot to instead
+ * of just acknowledging the request and continuing the old argument.
+ */
+export async function detectTopicChange(text) {
+  const clean = String(text || "").trim();
+  if (!clean) return { changed: false, topic: "" };
+
+  try {
+    const res = await client.messages.create({
+      model: MODEL,
+      max_tokens: 80,
+      thinking: { type: "disabled" },
+      output_config: { effort: "low" },
+      system: `You detect whether a message is the speaker asking to CHANGE the debate to a NEW topic — e.g. "let's change the topic", "actually can we talk about X instead", "sorry, I want a new topic: X", "forget that, let's debate Y". Reply with ONLY a single valid JSON object, no markdown fences, no commentary: {"changed": true or false, "topic": "the new topic in a short phrase, or empty string if changed is false or no clear new topic was stated"}`,
+      messages: [{ role: "user", content: clean }],
+    });
+    const block = res.content.find((b) => b.type === "text");
+    const raw = (block?.text || "").trim();
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return { changed: Boolean(parsed.changed), topic: String(parsed.topic || "").trim() };
+  } catch (err) {
+    console.error("[claude] topic-change check failed:", err.message);
+    return { changed: false, topic: "" }; // never let a hiccup here derail the debate
+  }
+}
+
+/**
  * Stream one debate turn from Claude.
  * Calls onDelta(text) for every raw text chunk (live transcript),
  * and onSentence(sentence) each time a complete sentence is available (for TTS).
  * Returns the full reply text. Abortable via the returned stream handle.
  */
-export function streamAgentReply(agent, history, language, { onDelta, onSentence }) {
+export function streamAgentReply(agent, history, language, userName, { onDelta, onSentence }) {
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: MAX_TOKENS,
     thinking: { type: "disabled" },
     output_config: { effort: "low" },
-    system: SYSTEM_PROMPTS[agent] + languageRule(language),
+    system: SYSTEM_PROMPTS[agent] + languageRule(language) + nameRule(userName),
     messages: history,
   });
 

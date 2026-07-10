@@ -157,7 +157,7 @@ io.on("connection", (socket) => {
   const session = new DebateSession(socket);
   console.log(`[socket] connected ${socket.id}`);
 
-  socket.on("start-debate", ({ topic, language } = {}) => {
+  socket.on("start-debate", ({ topic, language, userName } = {}) => {
     const clean = String(topic || "").trim();
     if (!clean) {
       socket.emit("debate-error", { message: "Enter a topic to start the debate." });
@@ -172,17 +172,21 @@ io.on("connection", (socket) => {
     }
     recordDebate();
     session.stop();
-    session.start(clean.slice(0, 200), language);
+    session.start(clean.slice(0, 200), language, userName);
   });
 
   socket.on("turn-played", () => session.onTurnPlayed());
   socket.on("user-interrupt", () => session.onUserInterrupt());
+  // Lets ARIA/REX pick up the human's name even if they set/change it mid-debate.
+  socket.on("update-name", ({ name } = {}) => session.setUserName(name));
   // onUserMessage is async (it awaits a quick intent check first) — catch so
   // a real failure reports cleanly instead of becoming an unhandled rejection.
   socket.on("user-said", ({ text } = {}) => {
     session.onUserMessage(text).catch((err) => session.fail(err));
   });
   socket.on("user-cancel", () => session.onUserCancel());
+  socket.on("pause-debate", () => session.pause());
+  socket.on("resume-debate", () => session.resume());
   socket.on("stop-debate", () => session.stop());
   socket.on("disconnect", () => {
     session.stop();

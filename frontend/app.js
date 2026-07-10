@@ -22,6 +22,8 @@ const els = {
   startBtn: document.getElementById("start-btn"),
   transcript: document.getElementById("transcript"),
   micBtn: document.getElementById("mic-btn"),
+  pauseBtn: document.getElementById("pause-btn"),
+  pauseLabel: document.getElementById("pause-label"),
   stopBtn: document.getElementById("stop-btn"),
   micHint: document.getElementById("mic-hint"),
   toast: document.getElementById("toast"),
@@ -95,6 +97,8 @@ const I18N = {
     micHint: "tap the mic and speak — both agents will react",
     micInsecure: "voice input needs an https connection",
     stop: "Stop",
+    pause: "Pause",
+    resume: "Resume",
     you: "You",
     statusStandby: "standby",
     statusTransmitting: "transmitting",
@@ -102,6 +106,9 @@ const I18N = {
     ignited: (topic) => `⚔ debate ignited — “${topic}”`,
     halted: "◼ debate halted",
     paused: "The agents rest their cases. Tap the mic to keep the debate alive.",
+    debateHeld: "⏸ debate paused — tap Resume to continue",
+    debateResumed: "▶ debate resumed",
+    topicChanged: (topic) => `↻ topic changed — “${topic}”`,
     needTopic: "Give the agents something to fight about.",
     noServer: "Could not reach the arena server.",
     micNeedsHttps: "Voice input needs a secure (https) connection — it works on the deployed site.",
@@ -167,6 +174,8 @@ const I18N = {
     micHint: "auf das mikrofon tippen und sprechen — beide reagieren",
     micInsecure: "spracheingabe braucht https",
     stop: "Stopp",
+    pause: "Pause",
+    resume: "Weiter",
     you: "Du",
     statusStandby: "bereit",
     statusTransmitting: "spricht",
@@ -174,6 +183,9 @@ const I18N = {
     ignited: (topic) => `⚔ debatte gestartet — „${topic}“`,
     halted: "◼ debatte beendet",
     paused: "Die beiden haben ihren Standpunkt dargelegt. Tippe auf das Mikrofon, um weiterzumachen.",
+    debateHeld: "⏸ debatte pausiert — tippe auf Weiter, um fortzufahren",
+    debateResumed: "▶ debatte fortgesetzt",
+    topicChanged: (topic) => `↻ thema geändert — „${topic}“`,
     needTopic: "Gib den beiden ein Streitthema.",
     noServer: "Server nicht erreichbar.",
     micNeedsHttps: "Spracheingabe braucht eine sichere (https) Verbindung — auf der veröffentlichten Seite funktioniert sie.",
@@ -251,6 +263,8 @@ function applyLanguage(lang) {
   els.transcript.setAttribute("data-empty", t("transcriptEmpty"));
   els.micHint.textContent = canRecord ? t("micHint") : t("micInsecure");
   document.querySelector("#stop-btn .stop-label").textContent = t("stop");
+  if (els.pauseLabel) els.pauseLabel.textContent = t(debateHeld ? "resume" : "pause");
+  if (els.pauseBtn) els.pauseBtn.title = t(debateHeld ? "resume" : "pause");
 
   setMicLive(micLive);            // re-label the mic button in the new language
   setSpeaking(speakingAgent);     // re-label the agent statuses
@@ -308,6 +322,16 @@ function saveProfile(p) {
   try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch { /* quota */ }
 }
 
+// The name to hand ARIA/REX so they can address the human by it — the name
+// they explicitly saved, falling back to whatever Google gave us, or empty
+// for a signed-out guest (nothing to personalize with).
+function getUserDisplayName() {
+  const saved = (loadProfile().name || "").trim();
+  if (saved) return saved;
+  const meta = currentUser?.user_metadata || {};
+  return (meta.full_name || meta.name || "").trim();
+}
+
 /* ---------------- Theme (dark / light) ----------------
    Scoped to the Options drawer and its modals — the neon debate stage keeps
    its signature look either way, since that's the app's visual identity. */
@@ -331,6 +355,12 @@ function renderProfileSummary() {
   if (!els.profileSummarySub || !currentUser) return;
   const meta = currentUser.user_metadata || {};
   if (els.profileAvatarMini) els.profileAvatarMini.src = meta.avatar_url || meta.picture || "";
+
+  // Show the saved name up top (in the collapsed summary row) once the human
+  // has set one — falls back to the generic "Profile" heading until they do.
+  const savedName = (loadProfile().name || "").trim();
+  if (els.profileSummaryTitle) els.profileSummaryTitle.textContent = savedName || t("profileTitle");
+
   const joined = currentUser.created_at
     ? new Date(currentUser.created_at).toLocaleDateString(currentLang === "de" ? "de-DE" : "en-US", { year: "numeric", month: "short" })
     : "";
@@ -354,10 +384,21 @@ async function syncDebateToCloud(debate) {
     user_id: currentUser.id,
     topic: debate.topic,
     transcript: debate.messages,
-    summary: debate.summary || null,
+    // Stringified regardless of the column's actual type (text or jsonb) —
+    // it round-trips correctly either way, and parseSummary() below undoes
+    // it on read. Summaries are now a structured object, not a plain string.
+    summary: debate.summary ? JSON.stringify(debate.summary) : null,
     language: debate.language || "en",
   });
   if (error) console.error("[cloud] save failed:", error.message);
+}
+
+// Undo the JSON.stringify above. Also tolerates older debates whose summary
+// was saved as a plain (non-JSON) string before this format existed.
+function parseSummary(value) {
+  if (!value) return null;
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { return value; }
 }
 
 async function deleteDebateCloud(id) {
@@ -391,7 +432,7 @@ async function pullCloudDebates() {
     startedAt: new Date(row.created_at).getTime(),
     endedAt: new Date(row.created_at).getTime(),
     messages: row.transcript || [],
-    summary: row.summary || null,
+    summary: parseSummary(row.summary),
   }));
 
   const cloudIds = new Set(cloud.map((d) => d.id));
@@ -693,6 +734,27 @@ async function ensureSummary(debate) {
   return summary;
 }
 
+// PDF section headings, localized to the debate's own language (not the
+// current UI language) so the PDF matches the debate it's summarizing.
+const PDF_LABELS = {
+  en: {
+    overview: "The Topic",
+    aria: "ARIA's Take",
+    rex: "REX's Take",
+    ended: "How It Ended",
+    next: "Debate This Next",
+    summary: "Summary",
+  },
+  de: {
+    overview: "Das Thema",
+    aria: "ARIAs Standpunkt",
+    rex: "REXs Standpunkt",
+    ended: "Wie es endete",
+    next: "Als Nächstes debattieren",
+    summary: "Zusammenfassung",
+  },
+};
+
 function downloadDebatePdf(debate) {
   const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
   if (!jsPDFCtor) { toast(t("pdfFailed")); return; }
@@ -700,7 +762,15 @@ function downloadDebatePdf(debate) {
   const doc = new jsPDFCtor();
   const margin = 20;
   const width = 170;
+  const pageBottom = 280;
   let y = margin;
+
+  const ensureRoom = (needed) => {
+    if (y + needed > pageBottom) {
+      doc.addPage();
+      y = margin;
+    }
+  };
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
@@ -718,16 +788,50 @@ function downloadDebatePdf(debate) {
   doc.setFontSize(13);
   const topicLines = doc.splitTextToSize(debate.topic || "", width);
   doc.text(topicLines, margin, y);
-  y += topicLines.length * 7 + 8;
+  y += topicLines.length * 7 + 10;
 
-  doc.setFontSize(11);
-  doc.text("Summary", margin, y);
-  y += 7;
+  const labels = PDF_LABELS[debate.language] || PDF_LABELS.en;
+  const summary = debate.summary;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10.5);
-  const summaryLines = doc.splitTextToSize(debate.summary || "", width);
-  doc.text(summaryLines, margin, y);
+  // A clean divider rule before each section heading.
+  const drawSection = (heading, body) => {
+    const clean = String(body || "").trim();
+    if (!clean) return;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    const bodyLines = doc.splitTextToSize(clean, width);
+    ensureRoom(10 + bodyLines.length * 5.5);
+
+    doc.setDrawColor(210);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y, margin + width, y);
+    y += 7;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11.5);
+    doc.setTextColor(0, 90, 168);
+    doc.text(heading, margin, y);
+    y += 7;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(20);
+    doc.text(bodyLines, margin, y);
+    y += bodyLines.length * 5.5 + 6;
+  };
+
+  // Structured (new) summaries render as clearly divided sections. Older
+  // saved debates may still have a plain-string summary — fall back to a
+  // single "Summary" section so those PDFs still work.
+  if (summary && typeof summary === "object") {
+    drawSection(labels.overview, summary.overview);
+    drawSection(labels.aria, summary.ariaTakeaway);
+    drawSection(labels.rex, summary.rexTakeaway);
+    drawSection(labels.ended, summary.howItEnded);
+    drawSection(labels.next, summary.nextTopic);
+  } else {
+    drawSection(labels.summary, summary);
+  }
 
   const slug = (debate.topic || "debate").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40);
   doc.save(`debate-${slug || "summary"}.pdf`);
@@ -1098,6 +1202,18 @@ function setSpeaking(agent) {
 
 /* ---------------- Socket events ---------------- */
 
+let debateHeld = false; // manually paused by the human (distinct from Stop)
+
+function setPauseUi(held) {
+  debateHeld = held;
+  if (!els.pauseBtn) return;
+  els.pauseBtn.classList.toggle("held", held);
+  els.pauseBtn.querySelector(".pause-icon").hidden = held;
+  els.pauseBtn.querySelector(".resume-icon").hidden = !held;
+  if (els.pauseLabel) els.pauseLabel.textContent = t(held ? "resume" : "pause");
+  els.pauseBtn.title = t(held ? "resume" : "pause");
+}
+
 socket.on("connect", () => console.log("[arena] connected"));
 
 socket.on("debate-started", ({ topic }) => {
@@ -1112,14 +1228,33 @@ socket.on("debate-started", ({ topic }) => {
   els.startBtn.disabled = false;
   els.stopBtn.hidden = false;
   els.newBtn.hidden = false;
+  if (els.pauseBtn) els.pauseBtn.hidden = false;
+  setPauseUi(false);
 });
 
 socket.on("debate-stopped", () => {
   stopAllAudio();
   els.stopBtn.hidden = true;
+  if (els.pauseBtn) els.pauseBtn.hidden = true;
+  setPauseUi(false);
   addLine("system", null, t("halted"));
   persistDebate();
   offerPdf(currentDebate);
+});
+
+socket.on("debate-held", () => {
+  stopAllAudio();
+  setPauseUi(true);
+  setSpeaking(null);
+  els.micBtn.disabled = true;
+  addLine("system", null, t("debateHeld"));
+  persistDebate();
+});
+
+socket.on("debate-resumed", () => {
+  setPauseUi(false);
+  els.micBtn.disabled = false;
+  addLine("system", null, t("debateResumed"));
 });
 
 socket.on("turn-start", ({ agent, turnId }) => {
@@ -1155,6 +1290,12 @@ socket.on("debate-paused", () => {
   persistDebate();
 });
 
+socket.on("topic-changed", ({ topic }) => {
+  if (currentDebate) currentDebate.topic = topic;
+  els.input.value = topic;
+  addLine("system", null, t("topicChanged", topic));
+});
+
 socket.on("debate-state", ({ state }) => {
   document.body.dataset.debateState = state;
 });
@@ -1163,6 +1304,9 @@ socket.on("debate-error", ({ message }) => {
   toast(message);
   els.startBtn.disabled = false;
   els.stopBtn.hidden = true;
+  if (els.pauseBtn) els.pauseBtn.hidden = true;
+  setPauseUi(false);
+  els.micBtn.disabled = false;
   stopAllAudio();
 });
 
@@ -1170,6 +1314,12 @@ els.stopBtn.addEventListener("click", () => {
   socket.emit("stop-debate");
   stopAllAudio();
 });
+
+if (els.pauseBtn) {
+  els.pauseBtn.addEventListener("click", () => {
+    socket.emit(debateHeld ? "resume-debate" : "pause-debate");
+  });
+}
 
 socket.on("disconnect", () => {
   toast("Connection lost — reconnecting…");
@@ -1195,7 +1345,7 @@ els.form.addEventListener("submit", async (e) => {
       body: JSON.stringify({ topic }),
     });
     if (!res.ok) throw new Error((await res.json()).error || "Bad topic");
-    socket.emit("start-debate", { topic, language: currentLang });
+    socket.emit("start-debate", { topic, language: currentLang, userName: getUserDisplayName() });
   } catch (err) {
     toast(err.message || t("noServer"));
     els.startBtn.disabled = false;
@@ -1437,7 +1587,14 @@ els.optionsOverlay.addEventListener("click", closeOptions);
 els.newBtn.addEventListener("click", startNewDebate);
 
 els.profileSave.addEventListener("click", () => {
-  saveProfile({ name: els.profileName.value.trim() });
+  const name = els.profileName.value.trim();
+  saveProfile({ name });
+  socket.emit("update-name", { name }); // so ARIA/REX pick it up even mid-debate
+  renderProfileSummary(); // show the saved name in the collapsed summary row
+  // Collapse back to the summary row instead of leaving the field sitting open.
+  if (els.profileDetails) els.profileDetails.hidden = true;
+  if (els.profileToggle) els.profileToggle.setAttribute("aria-expanded", "false");
+  if (els.profileChevron) els.profileChevron.classList.remove("open");
   toast(t("profileSaved"));
 });
 

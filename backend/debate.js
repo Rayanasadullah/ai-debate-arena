@@ -9,7 +9,7 @@
 // full spoken point arrives via "user-said" — so the agents never talk over
 // the human and always react to everything that was said.
 
-import { streamAgentReply, isEndingConversation } from "./claude.js";
+import { streamAgentReply, isEndingConversation, detectTopicChange } from "./claude.js";
 import { synthesizeSentence } from "./elevenlabs.js";
 
 const MAX_AGENT_TURNS = 8; // 4 rounds of ARIA + REX per debate segment
@@ -32,6 +32,9 @@ export class DebateSession {
     this.interrupting = false;   // an abort in flight is intentional, not an error
     this.userTextResolve = null;
     this.language = "en";        // debate language: "en" | "de"
+    this.paused = false;         // manually held by the human — distinct from stop()
+    this.pauseResolve = null;
+    this.userName = "";          // human's saved name, so agents can address them by it
   }
 
   emit(event, payload) {
@@ -43,10 +46,11 @@ export class DebateSession {
     this.emit("debate-state", { state });
   }
 
-  start(topic, language) {
+  start(topic, language, userName) {
     const epoch = ++this.epoch; // invalidates any loop from a previous debate
     this.topic = topic;
     this.language = ["en", "de"].includes(language) ? language : "en";
+    this.userName = String(userName || "").trim().slice(0, 60);
     this.history = [
       { role: "user", content: `The debate topic is: "${topic}". Give your opening argument.` },
     ];
@@ -55,34 +59,48 @@ export class DebateSession {
     this.nextAgent = "ARIA";
     this.awaitingUser = false;
     this.interrupting = false;
+    this.paused = false;
     this.emit("debate-started", { topic });
     this.runLoop(epoch).catch((err) => this.fail(err));
+  }
+
+  // Human set/changed their name via Profile — usable even mid-debate.
+  setUserName(name) {
+    this.userName = String(name || "").trim().slice(0, 60);
   }
 
   async runLoop(epoch) {
     this.loopRunning = true;
     try {
       while (this.active && epoch === this.epoch && this.turnCount < MAX_AGENT_TURNS) {
+        // Manually held by the human — park here until they resume.
+        if (this.paused) {
+          await this.waitForPauseEnd();
+          if (!this.active || epoch !== this.epoch) return;
+          continue; // re-check paused/awaitingUser fresh after resuming
+        }
+
         // If the user interrupted, park here until their full point arrives.
         if (this.awaitingUser) {
           this.interrupting = false;
           await this.waitForUser();
           if (!this.active || epoch !== this.epoch) return;
+          if (this.paused) continue;
         }
 
         const agent = this.nextAgent;
         await this.generateTurn(agent, epoch);
         if (!this.active || epoch !== this.epoch) return;
 
-        // A turn that was interrupted didn't really complete — don't advance,
-        // so the same agent picks back up after hearing the human out.
-        if (this.awaitingUser) continue;
+        // A turn that was interrupted (by the user or a pause) didn't really
+        // complete — don't advance, so the same agent picks back up after.
+        if (this.awaitingUser || this.paused) continue;
 
         this.nextAgent = agent === "ARIA" ? "REX" : "ARIA";
         this.turnCount++;
       }
 
-      if (this.active && epoch === this.epoch) {
+      if (this.active && epoch === this.epoch && !this.paused) {
         this.setState("USER_TURN");
         this.emit("debate-paused", {
           message: "The agents rest their cases. Tap the mic to keep the debate alive.",
@@ -101,6 +119,36 @@ export class DebateSession {
     });
   }
 
+  waitForPauseEnd() {
+    this.setState("PAUSED");
+    return new Promise((resolve) => {
+      this.pauseResolve = resolve;
+    });
+  }
+
+  // Human tapped Pause — hold the debate exactly where it is until Resume.
+  pause() {
+    if (!this.active || this.paused) return;
+    this.paused = true;
+    this.interrupting = true;
+    this.currentStream?.abort();
+    this.playbackResolve?.();
+    if (this.awaitingUser) this.userTextResolve?.();
+    this.setState("PAUSED");
+    this.emit("debate-held", {});
+  }
+
+  // Human tapped Resume — let the loop continue exactly where it left off.
+  resume() {
+    if (!this.active || !this.paused) return;
+    this.paused = false;
+    this.interrupting = false;
+    this.emit("debate-resumed", {});
+    const resolve = this.pauseResolve;
+    this.pauseResolve = null;
+    resolve?.();
+  }
+
   async generateTurn(agent, epoch) {
     const turnId = ++this.turnId;
     this.setState(`${agent}_SPEAKING`);
@@ -110,7 +158,7 @@ export class DebateSession {
     // strictly in order so the client can play a simple FIFO queue.
     let audioChain = Promise.resolve();
 
-    const stream = streamAgentReply(agent, this.history, this.language, {
+    const stream = streamAgentReply(agent, this.history, this.language, this.userName, {
       onDelta: (text) => this.emit("text-delta", { agent, turnId, text }),
       onSentence: (sentence) => {
         audioChain = audioChain.then(async () => {
@@ -160,7 +208,7 @@ export class DebateSession {
 
   // User tapped the mic — gracefully pause the current speaker and wait.
   onUserInterrupt() {
-    if (!this.active || !this.loopRunning || this.awaitingUser) return;
+    if (!this.active || !this.loopRunning || this.awaitingUser || this.paused) return;
     this.awaitingUser = true;
     this.interrupting = true;
     this.currentStream?.abort();
@@ -169,23 +217,33 @@ export class DebateSession {
   }
 
   // User finished speaking — inject their point and route to whoever they addressed.
-  // Async: a quick intent check decides whether this is a normal reply, or the
-  // human signaling (directly or indirectly) that they're done, which instead
-  // triggers a two-line goodbye and a clean stop.
+  // Async: two quick intent checks run in parallel — is the human signaling
+  // (directly or indirectly) that they're done, which triggers a two-line
+  // goodbye and a clean stop; or are they asking to change the debate topic,
+  // which needs to actually redirect the agents, not just get acknowledged.
   async onUserMessage(text) {
+    if (this.paused) return; // debate is on hold — the mic should be disabled anyway
     const clean = String(text || "").trim();
     if (!clean) return this.onUserCancel();
 
     const epoch = this.epoch;
-    const wantsToEnd = await isEndingConversation(clean);
+    const [wantsToEnd, topicChange] = await Promise.all([
+      isEndingConversation(clean),
+      detectTopicChange(clean),
+    ]);
     // The debate may have been stopped/restarted while we were awaiting the
-    // check above — don't act on a stale result.
+    // checks above — don't act on a stale result.
     if (epoch !== this.epoch || !this.active) return;
+
+    const changingTopic = !wantsToEnd && topicChange.changed && Boolean(topicChange.topic);
+    if (changingTopic) this.topic = topicChange.topic;
 
     // If the human named an agent, that agent answers next — even out of turn.
     const target = this.detectAddressedAgent(clean);
     const note = wantsToEnd
       ? " (The human is ending the conversation now — reply with ONE brief, warm goodbye line only. Do not continue debating or raise new arguments.)"
+      : changingTopic
+      ? ` (The human is changing the debate topic. The debate topic is now: "${topicChange.topic}". Briefly acknowledge in a few words, then immediately give your take on this NEW topic — do not keep discussing the previous topic, and do not just say "no problem" without actually addressing it.)`
       : target
       ? ` (The human is speaking to ${target} and expects ${target} to answer.)`
       : "";
@@ -198,8 +256,13 @@ export class DebateSession {
       return;
     }
 
-    // Give the debate room to react to the human rather than ending abruptly.
-    this.turnCount = Math.max(0, this.turnCount - 2);
+    if (changingTopic) {
+      this.emit("topic-changed", { topic: this.topic });
+      this.turnCount = 0; // fresh segment of debate budget on the new topic
+    } else {
+      // Give the debate room to react to the human rather than ending abruptly.
+      this.turnCount = Math.max(0, this.turnCount - 2);
+    }
 
     if (this.awaitingUser) {
       this.awaitingUser = false;
@@ -249,10 +312,13 @@ export class DebateSession {
     this.epoch++; // invalidate any loop still awaiting a stream or playback ack
     this.active = false;
     this.awaitingUser = false;
+    this.paused = false;
     this.interrupting = true;
     this.currentStream?.abort();
     this.playbackResolve?.();
     this.userTextResolve?.();
+    this.pauseResolve?.();
+    this.pauseResolve = null;
     this.setState("IDLE");
     this.emit("debate-stopped", {});
   }
