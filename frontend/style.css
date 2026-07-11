@@ -14,6 +14,15 @@
   --font-body: "Inter", sans-serif;
 }
 
+/* Persian: Orbitron/Inter have no Farsi glyphs, so every element using
+   var(--font-display)/var(--font-body) — buttons, headings, transcript,
+   everything — automatically switches to a real Persian-capable font the
+   moment Farsi is selected, without touching each individual rule. */
+html[lang="fa"] {
+  --font-display: "Vazirmatn", sans-serif;
+  --font-body: "Vazirmatn", sans-serif;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 /* Defensive catch-all: any element styled with display: flex/grid/block that

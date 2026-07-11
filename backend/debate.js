@@ -10,7 +10,9 @@
 // the human and always react to everything that was said.
 
 import { streamAgentReply, isEndingConversation, detectTopicChange } from "./claude.js";
-import { synthesizeSentence } from "./elevenlabs.js";
+// Not elevenlabs.js directly — tts.js routes Persian to Azure (ElevenLabs has
+// no native Farsi voice) and everything else to ElevenLabs, in one place.
+import { synthesizeSentence } from "./tts.js";
 
 const MAX_AGENT_TURNS = 8; // 4 rounds of ARIA + REX per debate segment
 const USER_WAIT_TIMEOUT = 60_000; // don't park forever if the mic turn is lost
@@ -31,7 +33,7 @@ export class DebateSession {
     this.awaitingUser = false;   // loop is parked, waiting for the human to finish
     this.interrupting = false;   // an abort in flight is intentional, not an error
     this.userTextResolve = null;
-    this.language = "en";        // debate language: "en" | "de"
+    this.language = "en";        // debate language: "en" | "de" | "fa"
     this.paused = false;         // manually held by the human — distinct from stop()
     this.pauseResolve = null;
     this.userName = "";          // human's saved name, so agents can address them by it
@@ -49,7 +51,7 @@ export class DebateSession {
   start(topic, language, userName) {
     const epoch = ++this.epoch; // invalidates any loop from a previous debate
     this.topic = topic;
-    this.language = ["en", "de"].includes(language) ? language : "en";
+    this.language = ["en", "de", "fa"].includes(language) ? language : "en";
     this.userName = String(userName || "").trim().slice(0, 60);
     this.history = [
       { role: "user", content: `The debate topic is: "${topic}". Give your opening argument.` },

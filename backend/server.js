@@ -147,6 +147,9 @@ app.get("/api/health", (_req, res) => {
     status: "ok",
     claude: Boolean(process.env.ANTHROPIC_API_KEY),
     elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
+    // Persian debates need this too — without it they still work as text,
+    // just with no voice (see backend/azure.js).
+    azure: Boolean(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION),
     // Mic transcription (ElevenLabs Scribe) uses the same ElevenLabs key.
     mic: Boolean(process.env.ELEVENLABS_API_KEY),
   });

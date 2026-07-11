@@ -266,6 +266,91 @@ const I18N = {
     notifyFailed: "Konnte nicht gesendet werden — bitte erneut versuchen.",
     notifyEmailInvalid: "Bitte gib eine gültige E-Mail-Adresse ein.",
   },
+  fa: {
+    dir: "rtl",
+    subtitle: "دو ذهن. دو جهان‌بینی متفاوت. یک میدان.",
+    placeholder: "هر موضوعی را وارد کنید… مثلاً «هوش مصنوعی بشریت را بهتر می‌کند»",
+    ignite: "شروع مناظره",
+    ariaTag: "مترقی · خوش‌بین",
+    rexTag: "شکاک · واقع‌گرا",
+    transcriptLabel: "متن زنده",
+    transcriptEmpty: "میدان ساکت است… موضوعی به آن‌ها بدهید.",
+    micJoin: "به مناظره بپیوندید",
+    micListening: "در حال گوش دادن… برای پایان ضربه بزنید",
+    micHint: "روی میکروفون ضربه بزنید و صحبت کنید — هر دو واکنش نشان می‌دهند",
+    micInsecure: "ورودی صوتی به اتصال https نیاز دارد",
+    stop: "توقف",
+    pause: "مکث",
+    resume: "ادامه",
+    you: "شما",
+    statusStandby: "آماده",
+    statusTransmitting: "در حال صحبت",
+    statusListening: "در حال گوش دادن",
+    ignited: (topic) => `⚔ مناظره آغاز شد — «${topic}»`,
+    halted: "◼ مناظره متوقف شد",
+    paused: "دو طرف استدلال‌های خود را ارائه کردند. برای ادامه‌ی مناظره روی میکروفون ضربه بزنید.",
+    debateHeld: "⏸ مناظره متوقف شد — برای ادامه روی «ادامه» ضربه بزنید",
+    debateResumed: "▶ مناظره ادامه یافت",
+    topicChanged: (topic) => `↻ موضوع تغییر کرد — «${topic}»`,
+    needTopic: "موضوعی برای بحث به آن‌ها بدهید.",
+    noServer: "اتصال به سرور میدان برقرار نشد.",
+    micNeedsHttps: "ورودی صوتی به اتصال امن (https) نیاز دارد — روی سایت منتشرشده کار می‌کند.",
+    micDenied: "دسترسی به میکروفون رد شد — آن را در تنظیمات مرورگر مجاز کنید.",
+    micNoAccess: "دسترسی به میکروفون ممکن نشد.",
+    micNotSetup: "ورودی صوتی هنوز روی سرور تنظیم نشده است.",
+    micFailed: "متوجه نشدیم — لطفاً دوباره تلاش کنید.",
+    listeningNow: "در حال گوش دادن…",
+    speakNow: "در حال گوش دادن… (اکنون صحبت کنید)",
+    transcribing: "در حال تبدیل به متن…",
+    optionsTitle: "تنظیمات",
+    newDebate: "مناظره جدید",
+    signIn: "ورود",
+    signInGoogle: "ورود با گوگل",
+    signInPitch: "وارد شوید تا این مناظره ذخیره شود، از هر دستگاهی به آن دسترسی داشته باشید و کتابخانه‌ی شخصی خود را بسازید.",
+    benefit1: "سابقه‌ی مناظرات که در همه‌ی دستگاه‌های شما همراه‌تان است",
+    benefit2: "کتابخانه‌ای شخصی از تمام مناظرات گذشته",
+    benefit3: "موضوعات موردعلاقه‌ی خود را نشان‌گذاری کنید",
+    benefit4: "زبان شما برای دفعه‌ی بعد به خاطر سپرده می‌شود",
+    signOut: "خروج",
+    signInFailed: "ورود ناموفق بود — لطفاً دوباره تلاش کنید.",
+    pdfLabel: "PDF",
+    pdfBusy: "…",
+    pdfFailed: "ساخت PDF ممکن نشد — دوباره تلاش کنید.",
+    pdfOfferText: "می‌خواهید خلاصه‌ی این مناظره را به‌صورت PDF دریافت کنید؟",
+    pdfOfferDownload: "دانلود PDF",
+    profileTitle: "پروفایل",
+    labelName: "نام",
+    save: "ذخیره",
+    editName: "ویرایش نام",
+    profileSaved: "پروفایل ذخیره شد.",
+    historyTitle: "کتابخانه‌ی مناظرات",
+    clearAll: "پاک‌کردن همه",
+    noHistory: "هنوز هیچ مناظره‌ای ذخیره نشده — یکی را تمام کنید تا اینجا نمایش داده شود.",
+    confirmClear: "همه‌ی مناظرات ذخیره‌شده حذف شوند؟ این کار قابل بازگشت نیست.",
+    viewingSaved: "◂ در حال مشاهده‌ی مناظره‌ی ذخیره‌شده",
+    turnsCount: (n) => `${n} پیام`,
+    themeDark: "تیره",
+    themeLight: "روشن",
+    memberSince: (date) => `عضو از ${date}`,
+    debateCount: (n) => `${n} مناظره تاکنون`,
+    sendFeedback: "ارسال بازخورد",
+    feedbackTitle: "خوشحال می‌شویم نظر شما را بشنویم",
+    feedbackSub: "این یک نسخه‌ی اولیه است — به ما بگویید چه چیزی خوب کار می‌کند، چه چیزی خراب است یا چه چیز دیگری می‌خواهید.",
+    feedbackPlaceholder: "بازخورد خود را بنویسید…",
+    feedbackSending: "در حال ارسال…",
+    feedbackSent: "ممنون — بازخورد ارسال شد!",
+    feedbackFailed: "ارسال ممکن نشد — دوباره تلاش کنید.",
+    feedbackEmpty: "قبل از ارسال چیزی بنویسید.",
+    feedbackSignInFirst: "برای ارسال بازخورد ابتدا وارد شوید.",
+    notifyTitle: "امروز مناظره‌ی بیشتری می‌خواهید؟",
+    notifySub: "شما به سقف رایگان امروز رسیده‌اید. ایمیل خود را بگذارید تا وقتی مناظرات بیشتر (یا یک گزینه‌ی پولی) در دسترس بود به شما اطلاع دهیم.",
+    notifyPlaceholder: "you@example.com",
+    notifyBtn: "به من اطلاع بده",
+    notifySending: "در حال ارسال…",
+    notifySent: "ممنون — به شما اطلاع می‌دهیم!",
+    notifyFailed: "ارسال ممکن نشد — دوباره تلاش کنید.",
+    notifyEmailInvalid: "لطفاً یک ایمیل معتبر وارد کنید.",
+  },
 };
 
 let currentLang = "en";
@@ -274,6 +359,21 @@ function t(key, ...args) {
   const dict = I18N[currentLang] || I18N.en;
   const val = dict[key] !== undefined ? dict[key] : I18N.en[key];
   return typeof val === "function" ? val(...args) : val;
+}
+
+// The agents' internal keys (ARIA/REX — used for CSS classes, DOM ids, and
+// message roles) never change, but the NAME shown to the human does: Nova /
+// Umbra in English and German, Delaram / Mirza (دلارام / میرزا) in Persian —
+// matching backend/claude.js exactly, so the transcript and what the agent
+// says about itself always agree.
+const AGENT_DISPLAY_NAMES = {
+  en: { ARIA: "Nova", REX: "Umbra" },
+  de: { ARIA: "Nova", REX: "Umbra" },
+  fa: { ARIA: "دلارام", REX: "میرزا" },
+};
+function agentDisplayName(agent) {
+  const dict = AGENT_DISPLAY_NAMES[currentLang] || AGENT_DISPLAY_NAMES.en;
+  return dict[agent] || agent;
 }
 
 // Apply a language: swap every static UI string, set text direction, persist it.
@@ -286,6 +386,11 @@ function applyLanguage(lang) {
   document.querySelector(".subtitle").textContent = t("subtitle");
   els.input.placeholder = t("placeholder");
   document.querySelector("#start-btn .btn-label").textContent = t("ignite");
+  // The character's actual name (Nova/Umbra, or Delaram/Mirza in Persian) —
+  // internal keys ARIA/REX in the DOM id/class stay put, only the visible
+  // heading text changes.
+  document.querySelector(".agent-aria .agent-name").textContent = agentDisplayName("ARIA");
+  document.querySelector(".agent-rex .agent-name").textContent = agentDisplayName("REX");
   document.querySelector(".agent-aria .agent-tag").textContent = t("ariaTag");
   document.querySelector(".agent-rex .agent-tag").textContent = t("rexTag");
   const tl = document.getElementById("transcript-label-text");
@@ -811,7 +916,7 @@ function openSavedDebate(id) {
   addLine("archive", null, t("viewingSaved"));
   addLine("system", null, t("ignited", d.topic));
   for (const m of d.messages) {
-    if (m.role === "ARIA" || m.role === "REX") addLine(m.role.toLowerCase(), m.role, m.text);
+    if (m.role === "ARIA" || m.role === "REX") addLine(m.role.toLowerCase(), agentDisplayName(m.role), m.text);
     else if (m.role === "human") addLine("human", t("you"), m.text);
   }
 
@@ -850,19 +955,32 @@ async function ensureSummary(debate) {
 const PDF_LABELS = {
   en: {
     overview: "The Topic",
-    aria: "ARIA's Take",
-    rex: "REX's Take",
+    aria: "Nova's Take",
+    rex: "Umbra's Take",
     ended: "How It Ended",
     next: "Debate This Next",
     summary: "Summary",
   },
   de: {
     overview: "Das Thema",
-    aria: "ARIAs Standpunkt",
-    rex: "REXs Standpunkt",
+    aria: "Novas Standpunkt",
+    rex: "Umbras Standpunkt",
     ended: "Wie es endete",
     next: "Als Nächstes debattieren",
     summary: "Zusammenfassung",
+  },
+  // NOTE: jsPDF's built-in fonts (Helvetica etc.) have no Persian/Arabic
+  // glyphs — a Persian PDF will render these labels and the debate content
+  // as blank boxes until a Persian-capable font (e.g. Vazirmatn) is embedded
+  // via jsPDF's addFont. Labels are still provided here so that follow-up
+  // font work is the only thing left to do, not a full rewrite.
+  fa: {
+    overview: "موضوع",
+    aria: "دیدگاه دلارام",
+    rex: "دیدگاه میرزا",
+    ended: "چگونه به پایان رسید",
+    next: "مناظره‌ی بعدی",
+    summary: "خلاصه",
   },
 };
 
@@ -1069,7 +1187,7 @@ function addLine(kind, speaker, text) {
 function appendToTurn(turnId, agent, text) {
   let el = lineEls.get(turnId);
   if (!el) {
-    el = addLine(agent.toLowerCase(), agent, "");
+    el = addLine(agent.toLowerCase(), agentDisplayName(agent), "");
     lineEls.set(turnId, el);
   }
   el.querySelector(".body").textContent += text;

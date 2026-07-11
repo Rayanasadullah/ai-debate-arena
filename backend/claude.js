@@ -15,14 +15,35 @@ You are in a live, spoken conversation, so talk like a real person, never roboti
 - If the human just spoke to you or asked YOU a question, answer them directly and naturally first, as if they turned to you in the room. Don't ignore them to keep arguing with the other agent.
 - Stay in character and keep your worldview, but be conversational, not a lecture.`;
 
-const SYSTEM_PROMPTS = {
-  ARIA: `You are ARIA, a debate agent with a progressive, optimistic, forward-thinking worldview. You believe in human potential, technology, and positive change. You are eloquent and confident. You disagree with REX and never simply agree with him.${SHARED_RULES}`,
-  REX: `You are REX, a debate agent with a skeptical, realist, critical worldview. You challenge assumptions, expose risks, and question optimism. You are sharp and direct. You disagree with ARIA and never simply agree with her.${SHARED_RULES}`,
+// The two agents' internal keys (ARIA/REX) never change — they're used
+// throughout the codebase for CSS classes, DOM ids, voice config, and JSON
+// fields. What the human actually hears/reads as each character's NAME is
+// language-dependent: Nova/Umbra for English and German, Delaram/Mirza
+// (دلارام / میرزا) for Persian — so the character introduces itself
+// correctly no matter which language the debate is in.
+const AGENT_DISPLAY_NAMES = {
+  en: { ARIA: "Nova", REX: "Umbra" },
+  de: { ARIA: "Nova", REX: "Umbra" },
+  fa: { ARIA: "دلارام", REX: "میرزا" },
 };
+
+export function agentDisplayName(agent, language) {
+  const lang = AGENT_DISPLAY_NAMES[language] ? language : "en";
+  return AGENT_DISPLAY_NAMES[lang][agent] || agent;
+}
+
+function systemPromptFor(agent, language) {
+  const name = agentDisplayName(agent, language);
+  const opponent = agentDisplayName(agent === "ARIA" ? "REX" : "ARIA", language);
+  if (agent === "ARIA") {
+    return `You are ${name}, a debate agent with a progressive, optimistic, forward-thinking worldview. You believe in human potential, technology, and positive change. You are eloquent and confident. You disagree with ${opponent} and never simply agree with them.${SHARED_RULES}`;
+  }
+  return `You are ${name}, a debate agent with a skeptical, realist, critical worldview. You challenge assumptions, expose risks, and question optimism. You are sharp and direct. You disagree with ${opponent} and never simply agree with them.${SHARED_RULES}`;
+}
 
 // The whole debate happens in the language the user picked. The topic itself may
 // be typed in any language — respond in the chosen one regardless.
-const LANGUAGE_NAMES = { en: "English", de: "German" };
+const LANGUAGE_NAMES = { en: "English", de: "German", fa: "Persian (Farsi)" };
 
 function languageRule(language) {
   const lang = LANGUAGE_NAMES[language] ? language : "en";
@@ -43,8 +64,11 @@ function nameRule(userName) {
 The human you're debating with is named ${clean}. Address them by name naturally when it genuinely fits — e.g. reacting to a point they just made, or opening a reply directed at them — the way a person would in real conversation. Don't force it into every line, and never use it as a filler habit.`;
 }
 
-// Matches a complete sentence (ending in . ! or ?) followed by whitespace.
-const SENTENCE_RE = /[^.!?]*[.!?]+["')\]]*\s/;
+// Matches a complete sentence (ending in . ! ? — or Persian's ؟) followed by
+// whitespace. The Persian question mark is included so Farsi replies still
+// get chunked into per-sentence TTS calls instead of buffering as one giant
+// block until the end of the reply.
+const SENTENCE_RE = /[^.!?؟]*[.!?؟]+["')\]]*\s/;
 
 /**
  * Produce a short, neutral, SECTIONED recap of a finished debate — used for
@@ -55,8 +79,13 @@ const SENTENCE_RE = /[^.!?]*[.!?]+["')\]]*\s/;
 export async function summarizeDebate(topic, messages, language = "en") {
   const langName = LANGUAGE_NAMES[language] ? language : "en";
   const name = LANGUAGE_NAMES[langName];
+  const ariaName = agentDisplayName("ARIA", langName);
+  const rexName = agentDisplayName("REX", langName);
   const transcript = messages
-    .map((m) => `${m.role === "human" ? "Human" : m.role}: ${m.text}`)
+    .map((m) => {
+      const label = m.role === "human" ? "Human" : m.role === "ARIA" ? ariaName : m.role === "REX" ? rexName : m.role;
+      return `${label}: ${m.text}`;
+    })
     .join("\n");
 
   const res = await client.messages.create({
@@ -65,8 +94,8 @@ export async function summarizeDebate(topic, messages, language = "en") {
     system: `You write short, neutral recaps of debates for someone who didn't watch them, entirely in ${name}. Reply with ONLY a single valid JSON object — no markdown fences, no commentary before or after — with exactly these string fields:
 {
   "overview": "1-2 plain sentences introducing the topic and what was at stake.",
-  "ariaTakeaway": "1-2 plain sentences on ARIA's (progressive, optimistic) core argument.",
-  "rexTakeaway": "1-2 plain sentences on REX's (skeptical, realist) core argument.",
+  "ariaTakeaway": "1-2 plain sentences on ${ariaName}'s (progressive, optimistic) core argument.",
+  "rexTakeaway": "1-2 plain sentences on ${rexName}'s (skeptical, realist) core argument.",
   "howItEnded": "1-2 plain sentences on how the exchange concluded or where it landed.",
   "nextTopic": "One related follow-up debate topic the human might enjoy next, phrased as a short standalone topic (not a question to the reader)."
 }
@@ -167,7 +196,7 @@ export function streamAgentReply(agent, history, language, userName, { onDelta, 
     max_tokens: MAX_TOKENS,
     thinking: { type: "disabled" },
     output_config: { effort: "low" },
-    system: SYSTEM_PROMPTS[agent] + languageRule(language) + nameRule(userName),
+    system: systemPromptFor(agent, language) + languageRule(language) + nameRule(userName),
     messages: history,
   });
 
