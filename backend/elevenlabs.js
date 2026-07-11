@@ -49,8 +49,12 @@ export async function synthesizeSentence(agent, text, language = "en") {
     return null; // voice not configured — debate still works as text
   }
 
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream` +
-    `?optimize_streaming_latency=3&output_format=mp3_44100_64`;
+  // eleven_v3 rejects optimize_streaming_latency outright (400
+  // unsupported_model) — that query param only works with the older
+  // turbo/multilingual_v2 models, so it's omitted for v3.
+  const url = modelId === "eleven_v3"
+    ? `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?output_format=mp3_44100_64`
+    : `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&output_format=mp3_44100_64`;
 
   const started = Date.now();
   console.log(`[tts #${id}] ${agent}/${language} → ElevenLabs (${text.length} chars) voice=${voiceId.slice(0, 8)}… model=${modelId} "${preview}"`);
