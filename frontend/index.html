@@ -368,6 +368,10 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- Only used for the Persian PDF export: jsPDF can't shape Arabic-script
+       text on its own, so Persian PDFs are rasterized from real RTL HTML
+       (Vazirmatn webfont) via jsPDF's doc.html(), which needs html2canvas. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="animations.js"></script>
   <script src="app.js"></script>
 </body>

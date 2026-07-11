@@ -9,9 +9,9 @@
 // full spoken point arrives via "user-said" — so the agents never talk over
 // the human and always react to everything that was said.
 
-import { streamAgentReply, isEndingConversation, detectTopicChange } from "./claude.js";
-// Not elevenlabs.js directly — tts.js routes Persian to Azure (ElevenLabs has
-// no native Farsi voice) and everything else to ElevenLabs, in one place.
+import { streamAgentReply, isEndingConversation, detectTopicChange, agentDisplayName } from "./claude.js";
+// Not elevenlabs.js directly — tts.js is the one place per-language TTS
+// routing lives, even though today every language routes to ElevenLabs.
 import { synthesizeSentence } from "./tts.js";
 
 const MAX_AGENT_TURNS = 8; // 4 rounds of ARIA + REX per debate segment
@@ -192,7 +192,12 @@ export class DebateSession {
     await audioChain;
     if (!this.active || turnId !== this.turnId || this.awaitingUser) return;
 
-    this.history.push({ role: "user", content: `${agent} said: ${fullText}` });
+    // Use the language-appropriate display name (Nova/Umbra, دلارام/میرزا) in
+    // what actually gets fed back into Claude's context — not the internal
+    // ARIA/REX key. Otherwise the model sees its own English internal name
+    // repeated in the transcript every turn and starts self-identifying with
+    // it instead of the name it was actually introduced by.
+    this.history.push({ role: "user", content: `${agentDisplayName(agent, this.language)} said: ${fullText}` });
     this.emit("turn-end", { agent, turnId });
 
     // Wait until the client finishes playing this turn's audio (or interrupts).
@@ -247,7 +252,7 @@ export class DebateSession {
       : changingTopic
       ? ` (The human is changing the debate topic. The debate topic is now: "${topicChange.topic}". Briefly acknowledge in a few words, then immediately give your take on this NEW topic — do not keep discussing the previous topic, and do not just say "no problem" without actually addressing it.)`
       : target
-      ? ` (The human is speaking to ${target} and expects ${target} to answer.)`
+      ? ` (The human is speaking to ${agentDisplayName(target, this.language)} and expects ${agentDisplayName(target, this.language)} to answer.)`
       : "";
     this.history.push({ role: "user", content: `Human said: ${clean}${note}` });
     if (target && !wantsToEnd) this.nextAgent = target;
@@ -292,11 +297,21 @@ export class DebateSession {
     this.stop();
   }
 
-  // Which agent, if any, did the human address by name?
+  // Which agent, if any, did the human address by name? Checks every name
+  // the agent has ever gone by — the internal key, and every language's
+  // display name — since the human might say "Nova" or "دلارام" rather than
+  // the internal "ARIA", regardless of which language the debate is in.
   detectAddressedAgent(text) {
-    const lower = text.toLowerCase();
-    const aria = /\baria\b/.test(lower);
-    const rex = /\brex\b/.test(lower);
+    const raw = String(text || "");
+    const lower = raw.toLowerCase();
+    const ariaNames = ["aria", "nova", "دلارام"];
+    const rexNames = ["rex", "umbra", "میرزا"];
+    const mentions = (names) =>
+      names.some((name) =>
+        /^[a-z]+$/.test(name) ? new RegExp(`\\b${name}\\b`).test(lower) : raw.includes(name)
+      );
+    const aria = mentions(ariaNames);
+    const rex = mentions(rexNames);
     if (aria && !rex) return "ARIA";
     if (rex && !aria) return "REX";
     return null; // both or neither — let the current speaker respond

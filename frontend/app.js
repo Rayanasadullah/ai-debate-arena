@@ -969,11 +969,13 @@ const PDF_LABELS = {
     next: "Als Nächstes debattieren",
     summary: "Zusammenfassung",
   },
-  // NOTE: jsPDF's built-in fonts (Helvetica etc.) have no Persian/Arabic
-  // glyphs — a Persian PDF will render these labels and the debate content
-  // as blank boxes until a Persian-capable font (e.g. Vazirmatn) is embedded
-  // via jsPDF's addFont. Labels are still provided here so that follow-up
-  // font work is the only thing left to do, not a full rewrite.
+  // Persian PDFs don't go through jsPDF's doc.text() at all — Helvetica has
+  // no Persian glyphs, and jsPDF can't shape Arabic-script text on its own.
+  // Instead downloadDebatePdfRtl() renders an off-screen RTL HTML block with
+  // the real Vazirmatn webfont (already loaded for the page) and rasterizes
+  // it into the PDF via html2canvas, so the browser does the correct
+  // shaping/joining and we just capture what it draws. These labels are the
+  // section headings used in that HTML.
   fa: {
     overview: "موضوع",
     aria: "دیدگاه دلارام",
@@ -984,7 +986,11 @@ const PDF_LABELS = {
   },
 };
 
-function downloadDebatePdf(debate) {
+async function downloadDebatePdf(debate) {
+  // Persian needs real font shaping the plain text() path below can't do —
+  // handled entirely separately (see downloadDebatePdfRtl below).
+  if (debate.language === "fa") return downloadDebatePdfRtl(debate);
+
   const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
   if (!jsPDFCtor) { toast(t("pdfFailed")); return; }
 
@@ -1066,6 +1072,80 @@ function downloadDebatePdf(debate) {
   doc.save(`debate-${slug || "summary"}.pdf`);
 }
 
+// Minimal HTML-escaping for text we're about to drop into innerHTML — all of
+// it is debate content (topic, AI-written summary text), never trusted markup.
+function escapeHtmlText(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Persian PDF export: instead of jsPDF's doc.text() (Helvetica has no
+// Persian glyphs, and jsPDF has no Arabic/Persian shaping of its own), build
+// the page as real RTL HTML using the Vazirmatn webfont already loaded on
+// the page, then rasterize it into the PDF with html2canvas (via jsPDF's
+// doc.html()). The browser does the correct letter-joining/shaping for us —
+// we just capture what it renders, so the output looks exactly like the
+// on-screen Persian UI instead of boxes or mojibake.
+async function downloadDebatePdfRtl(debate) {
+  const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+  if (!jsPDFCtor || !window.html2canvas) { toast(t("pdfFailed")); return; }
+
+  const labels = PDF_LABELS.fa;
+  const summary = debate.summary;
+
+  const section = (heading, body) => {
+    const clean = String(body || "").trim();
+    if (!clean) return "";
+    return `
+      <div style="border-top:1px solid #d7d7d7; padding-top:12px; margin-top:16px;">
+        <div style="color:#0a5aa8; font-weight:700; font-size:16px; margin-bottom:8px;">${escapeHtmlText(heading)}</div>
+        <div style="color:#181818; font-size:14px; line-height:2;">${escapeHtmlText(clean)}</div>
+      </div>`;
+  };
+
+  const sectionsHtml = summary && typeof summary === "object"
+    ? [
+        section(labels.overview, summary.overview),
+        section(labels.aria, summary.ariaTakeaway),
+        section(labels.rex, summary.rexTakeaway),
+        section(labels.ended, summary.howItEnded),
+        section(labels.next, summary.nextTopic),
+      ].join("")
+    : section(labels.summary, summary);
+
+  const container = document.createElement("div");
+  container.setAttribute("dir", "rtl");
+  container.style.cssText =
+    "position:fixed; top:0; left:-99999px; width:560px; padding:28px; " +
+    "background:#ffffff; font-family:'Vazirmatn', sans-serif; box-sizing:border-box;";
+  container.innerHTML = `
+    <div style="font-family:'Orbitron', sans-serif; font-size:22px; font-weight:700; color:#181818;">AI Debate Arena</div>
+    <div style="color:#828282; font-size:13px; margin-top:8px;">${escapeHtmlText(formatDate(debate.startedAt))}</div>
+    <div style="color:#181818; font-weight:700; font-size:17px; margin-top:16px; line-height:1.7;">${escapeHtmlText(debate.topic || "")}</div>
+    ${sectionsHtml}
+  `;
+  document.body.appendChild(container);
+
+  try {
+    const doc = new jsPDFCtor();
+    await doc.html(container, {
+      x: 15,
+      y: 15,
+      width: 180,        // target width in the PDF, in mm
+      windowWidth: 560,   // must match the container's CSS width above
+      html2canvas: { scale: 0.34, useCORS: true },
+    });
+    const slug = (debate.topic || "debate").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40);
+    doc.save(`debate-${slug || "summary"}.pdf`);
+  } finally {
+    container.remove();
+  }
+}
+
 async function handlePdfClick(id, btn) {
   const debate = loadDebates().find((d) => d.id === id);
   if (!debate) return;
@@ -1074,7 +1154,7 @@ async function handlePdfClick(id, btn) {
   btn.textContent = t("pdfBusy");
   try {
     await ensureSummary(debate);
-    downloadDebatePdf(debate);
+    await downloadDebatePdf(debate);
   } catch {
     toast(t("pdfFailed"));
   } finally {

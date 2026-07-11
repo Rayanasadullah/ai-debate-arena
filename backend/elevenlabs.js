@@ -5,11 +5,15 @@ const VOICE_SETTINGS = {
   REX: { stability: 0.55, similarity_boost: 0.8, style: 0.45 },
 };
 
-// Which model to use per language. English stays on the fast turbo model; other
-// languages use the multilingual model.
+// Which model to use per language. English stays on the fast turbo model.
+// German uses the general multilingual model. Persian specifically needs
+// eleven_v3 — multilingual_v2's documented language list doesn't include
+// Persian, while v3 explicitly does, and sounds far less robotic than
+// Azure's only two fa-IR voices.
 const MODEL_BY_LANG = {
   en: "eleven_turbo_v2_5",
   de: "eleven_multilingual_v2",
+  fa: "eleven_v3",
 };
 
 // Resolve the voice id for an agent in a given language. Language-specific voices

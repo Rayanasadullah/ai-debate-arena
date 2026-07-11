@@ -90,7 +90,11 @@ export async function summarizeDebate(topic, messages, language = "en") {
 
   const res = await client.messages.create({
     model: MODEL,
-    max_tokens: 600,
+    // Persian (and other non-Latin scripts) can need meaningfully more
+    // tokens than English for the same amount of content — 600 was tight
+    // enough to truncate mid-JSON for Farsi summaries, which broke
+    // JSON.parse below and fell all the way through to the raw-text fallback.
+    max_tokens: 900,
     system: `You write short, neutral recaps of debates for someone who didn't watch them, entirely in ${name}. Reply with ONLY a single valid JSON object — no markdown fences, no commentary before or after — with exactly these string fields:
 {
   "overview": "1-2 plain sentences introducing the topic and what was at stake.",
@@ -107,8 +111,16 @@ Plain sentences only in every field: no markdown, no headings, no bullet points,
   const raw = (block?.text || "").trim();
 
   try {
-    // Strip an accidental ```json fence if the model adds one anyway.
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    // Strip an accidental ```json fence if the model adds one anyway, then
+    // slice down to the outermost { ... } in case of any stray text before
+    // or after it — more forgiving than requiring the whole string to be
+    // valid JSON on the nose.
+    let cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    }
     const parsed = JSON.parse(cleaned);
     return {
       overview: String(parsed.overview || "").trim(),
