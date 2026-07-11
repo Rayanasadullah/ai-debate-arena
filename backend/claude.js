@@ -49,9 +49,18 @@ function languageRule(language) {
   const lang = LANGUAGE_NAMES[language] ? language : "en";
   if (lang === "en") return "";
   const name = LANGUAGE_NAMES[lang];
+  // Persian gets an extra register instruction: by default the model writes
+  // casual Tehrani spoken Persian (رو instead of را، می‌کنن instead of
+  // می‌کنند, dropped endings) — which the TTS voice then reads back in that
+  // same casual accent. Pushing the TEXT into formal/standard Persian (the
+  // register used in broadcast debates and diplomacy) makes the voice output
+  // sound like that register too, since it's just reading what's written.
+  const persianRegister = lang === "fa"
+    ? `\n\nUse formal, standard Persian (فارسی رسمی و معیار) — the register of televised debates, diplomatic discussion, and news interviews — not casual Tehrani colloquial speech. Concretely: use full verb forms (می‌کنند، است، نیست) instead of colloquial contractions (می‌کنن، ه، نی), and را instead of the colloquial رو. Avoid slang and Tehrani-specific idioms. Still sound like an articulate professional speaking naturally in a live discussion, not like a stiff written document.`
+    : "";
   return `
 
-CRITICAL LANGUAGE RULE: You MUST speak entirely in ${name}. Every single word of your reply — including reactions and asides — must be natural, fluent ${name}, because your reply is read aloud by a ${name} voice. Never switch to English, even if the topic or the other speaker uses English. Write ${name} the way a native speaker actually talks, not a stiff translation.`;
+CRITICAL LANGUAGE RULE: You MUST speak entirely in ${name}. Every single word of your reply — including reactions and asides — must be natural, fluent ${name}, because your reply is read aloud by a ${name} voice. Never switch to English, even if the topic or the other speaker uses English. Write ${name} the way a native speaker actually talks, not a stiff translation.${persianRegister}`;
 }
 
 // If the human has a saved name, let the agents actually use it — like any
