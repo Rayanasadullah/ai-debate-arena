@@ -311,8 +311,8 @@ app.post("/api/admin/limits", async (req, res) => {
 // so an invalid/empty topic here never consumes quota.
 app.post("/api/start", async (req, res) => {
   const topic = String(req.body?.topic || "").trim();
-  if (!topic || topic.length > 200) {
-    return res.status(400).json({ error: "Please provide a topic (max 200 characters)." });
+  if (!topic || topic.length > 400) {
+    return res.status(400).json({ error: "Please provide a topic (max 400 characters)." });
   }
   const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const quota = await checkDebateQuota(req, token);
@@ -379,7 +379,7 @@ io.on("connection", (socket) => {
       }
       recordDebateUsage(quota);
       session.stop();
-      session.start(clean.slice(0, 200), language, userName);
+      session.start(clean.slice(0, 400), language, userName);
     })().catch((err) => session.fail(err));
   });
 
