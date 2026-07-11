@@ -1119,8 +1119,14 @@ async function downloadDebatePdfRtl(debate) {
 
   const container = document.createElement("div");
   container.setAttribute("dir", "rtl");
+  // Was positioned at left:-99999px to hide it off-screen — html2canvas
+  // doesn't reliably rasterize elements parked way outside the viewport
+  // (it produced a blank capture, hence the empty PDF). Keeping it at real
+  // on-screen coordinates (0,0) but behind everything via a very negative
+  // z-index is invisible to the user in exactly the same way, but is
+  // actually where html2canvas expects content to be when it captures it.
   container.style.cssText =
-    "position:fixed; top:0; left:-99999px; width:560px; padding:28px; " +
+    "position:fixed; top:0; left:0; z-index:-9999; width:560px; padding:28px; " +
     "background:#ffffff; font-family:'Vazirmatn', sans-serif; box-sizing:border-box;";
   container.innerHTML = `
     <div style="font-family:'Orbitron', sans-serif; font-size:22px; font-weight:700; color:#181818;">AI Debate Arena</div>
@@ -1131,6 +1137,12 @@ async function downloadDebatePdfRtl(debate) {
   document.body.appendChild(container);
 
   try {
+    // Make sure Vazirmatn is actually parsed/ready before html2canvas takes
+    // its snapshot — otherwise a freshly-inserted node can get captured a
+    // frame before the webfont is applied, silently falling back to
+    // whatever generic font renders instead (or nothing, if swapped late).
+    if (document.fonts?.ready) await document.fonts.ready;
+
     const doc = new jsPDFCtor();
     await doc.html(container, {
       x: 15,
@@ -1188,9 +1200,14 @@ function offerPdf(debate) {
     const original = els.pdfOfferDownload.textContent;
     els.pdfOfferDownload.disabled = true;
     els.pdfOfferDownload.textContent = t("pdfBusy");
+    clearTimeout(pdfOfferTimer); // don't let the 12s auto-hide fire mid-download
     try {
+      // Was missing this "await" — the PDF work ran in the background while
+      // hide() fired immediately, so a slow request (e.g. Render's free tier
+      // waking from an idle spin-down, which can take 50s+) looked like the
+      // button did nothing: no visible error, no successful close either.
       await ensureSummary(debate);
-      downloadDebatePdf(debate);
+      await downloadDebatePdf(debate);
       hide();
     } catch {
       toast(t("pdfFailed"));
@@ -1214,6 +1231,7 @@ function startNewDebate() {
   els.newBtn.hidden = true;
   els.startBtn.disabled = false;
   els.input.value = "";
+  els.input.style.height = "auto"; // collapse back to a single line
   els.input.focus();
 }
 
@@ -1603,6 +1621,7 @@ socket.on("debate-paused", () => {
 socket.on("topic-changed", ({ topic }) => {
   if (currentDebate) currentDebate.topic = topic;
   els.input.value = topic;
+  autoGrowTopicInput(); // value was set programmatically — no "input" event fired
   addLine("system", null, t("topicChanged", topic));
 });
 
@@ -1640,6 +1659,24 @@ socket.on("disconnect", () => {
 });
 
 /* ---------------- Start debate ---------------- */
+
+// The topic field used to be a single-line <input> — too cramped to see a
+// longer topic (or a short explanation of it) while typing. It's now a
+// <textarea> that grows with the content instead of scrolling text
+// sideways (capped by max-height in CSS, then it scrolls internally).
+// Enter still submits like the old input did; Shift+Enter inserts a
+// newline so a multi-line explanation is actually possible.
+function autoGrowTopicInput() {
+  els.input.style.height = "auto";
+  els.input.style.height = `${els.input.scrollHeight}px`;
+}
+els.input.addEventListener("input", autoGrowTopicInput);
+els.input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    els.form.requestSubmit();
+  }
+});
 
 els.form.addEventListener("submit", async (e) => {
   e.preventDefault();

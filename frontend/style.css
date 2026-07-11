@@ -185,6 +185,7 @@ body::after {
 .topic-bar {
   margin: 26px auto 0;
   display: flex;
+  align-items: flex-end;
   gap: 10px;
   max-width: 640px;
 }
@@ -200,6 +201,14 @@ body::after {
   font-size: 0.95rem;
   outline: none;
   transition: border-color 0.25s, box-shadow 0.25s;
+  /* Was a single-line <input> — too cramped to actually see a longer topic
+     while typing it. Now a <textarea> that grows with the content (JS in
+     app.js sets its height on input) instead of scrolling text sideways. */
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.5;
+  max-height: 200px;
+  font-family: var(--font-body);
 }
 
 #topic-input:focus {
@@ -787,7 +796,7 @@ body::after {
 @media (max-width: 720px) {
   .arena { padding-bottom: 150px; gap: 20px; }
 
-  .topic-bar { flex-direction: column; }
+  .topic-bar { flex-direction: column; align-items: stretch; }
   #start-btn { width: 100%; }
 
   /* Keep the two agents side by side (not stacked) so both — and the

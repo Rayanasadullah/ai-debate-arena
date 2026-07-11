@@ -8,20 +8,38 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matc
 window.addEventListener("DOMContentLoaded", () => {
   if (reducedMotion || typeof gsap === "undefined") return;
 
-  gsap.set([".title", ".subtitle", ".topic-bar", ".agent", ".stage-divider", ".transcript-wrap", ".mic-dock"], {
-    opacity: 0,
-  });
+  const REVEAL_TARGETS = [".title", ".subtitle", ".topic-bar", ".agent", ".stage-divider", ".transcript-wrap", ".mic-dock"];
 
-  const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+  // Safety net: this whole intro hinges on the GSAP timeline below actually
+  // finishing. If it stalls for any reason — a backgrounded/throttled tab
+  // pausing requestAnimationFrame mid-animation, a CDN hiccup, any thrown
+  // error — everything above was already set to opacity:0 and would stay
+  // permanently invisible (and click-through-but-unseen) with no way to
+  // recover. This forces full visibility after a fixed delay regardless of
+  // what happened to the animation, so the page can never get stuck hidden.
+  const forceReveal = () => gsap.set(REVEAL_TARGETS, { clearProps: "all" });
+  const safetyTimer = setTimeout(forceReveal, 4000);
 
-  tl.fromTo(".title", { y: -30, letterSpacing: "0.6em" }, { opacity: 1, y: 0, letterSpacing: "0.28em", duration: 1.1 })
-    .to(".subtitle", { opacity: 1, duration: 0.6 }, "-=0.5")
-    .fromTo(".agent-aria", { x: -60 }, { opacity: 1, x: 0, duration: 0.8 }, "-=0.3")
-    .fromTo(".agent-rex", { x: 60 }, { opacity: 1, x: 0, duration: 0.8 }, "<")
-    .fromTo(".stage-divider", { scale: 0 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, "-=0.4")
-    .fromTo(".topic-bar", { y: 16 }, { opacity: 1, y: 0, duration: 0.6 }, "-=0.3")
-    .fromTo(".transcript-wrap", { y: 24 }, { opacity: 1, y: 0, duration: 0.6 }, "-=0.35")
-    .to(".mic-dock", { opacity: 1, duration: 0.6 }, "-=0.3");
+  try {
+    gsap.set(REVEAL_TARGETS, { opacity: 0 });
+
+    const tl = gsap.timeline({
+      defaults: { ease: "power3.out" },
+      onComplete: () => clearTimeout(safetyTimer),
+    });
+
+    tl.fromTo(".title", { y: -30, letterSpacing: "0.6em" }, { opacity: 1, y: 0, letterSpacing: "0.28em", duration: 1.1 })
+      .to(".subtitle", { opacity: 1, duration: 0.6 }, "-=0.5")
+      .fromTo(".agent-aria", { x: -60 }, { opacity: 1, x: 0, duration: 0.8 }, "-=0.3")
+      .fromTo(".agent-rex", { x: 60 }, { opacity: 1, x: 0, duration: 0.8 }, "<")
+      .fromTo(".stage-divider", { scale: 0 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, "-=0.4")
+      .fromTo(".topic-bar", { y: 16 }, { opacity: 1, y: 0, duration: 0.6 }, "-=0.3")
+      .fromTo(".transcript-wrap", { y: 24 }, { opacity: 1, y: 0, duration: 0.6 }, "-=0.35")
+      .to(".mic-dock", { opacity: 1, duration: 0.6 }, "-=0.3");
+  } catch (err) {
+    console.error("[animations] intro reveal threw, forcing visible instead:", err);
+    forceReveal();
+  }
 });
 
 /* Transcript lines slide in — called from app.js */
