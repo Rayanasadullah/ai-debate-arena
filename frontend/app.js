@@ -1429,9 +1429,18 @@ els.form.addEventListener("submit", async (e) => {
   els.startBtn.disabled = true;
 
   try {
+    // Signed-in users' daily limit is tracked by their verified account, not
+    // just their IP — otherwise switching Google accounts on the same device
+    // would still share one quota. Send the access token so the server can
+    // check who's really asking (also lets the unlimited-access allowlist work).
+    const { data } = sb ? await sb.auth.getSession() : { data: null };
+    const accessToken = data?.session?.access_token;
     const res = await fetch(`${BACKEND_URL}/api/start`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
       body: JSON.stringify({ topic }),
     });
     if (!res.ok) {
@@ -1440,7 +1449,7 @@ els.form.addEventListener("submit", async (e) => {
       err.code = body.code;
       throw err;
     }
-    socket.emit("start-debate", { topic, language: currentLang, userName: getUserDisplayName() });
+    socket.emit("start-debate", { topic, language: currentLang, userName: getUserDisplayName(), accessToken });
   } catch (err) {
     toast(err.message || t("noServer"));
     if (err.code === "per_user_limit" || err.code === "site_limit") openNotify();

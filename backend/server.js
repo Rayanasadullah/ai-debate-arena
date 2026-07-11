@@ -16,6 +16,7 @@ const { DebateSession } = await import("./debate.js");
 const { transcribeAudio } = await import("./scribe.js");
 const { summarizeDebate } = await import("./claude.js");
 const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js");
+const { isAdmin, isUnlimitedEmail, listAllowlist, addToAllowlist, removeFromAllowlist } = await import("./admin.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -23,7 +24,10 @@ const PORT = process.env.PORT || 3000;
 // can't run up an unbounded Claude/ElevenLabs bill. In-memory (no DB) — the
 // counter resets automatically when the UTC date rolls over.
 const _rawLimit = process.env.DAILY_DEBATE_LIMIT;
-const DAILY_LIMIT =
+// `let`, not `const` — the admin page can nudge this at runtime (see
+// POST /api/admin/limits below). Resets to the env var default on the next
+// restart/redeploy; an accepted tradeoff for a one-click control with no DB.
+let DAILY_LIMIT =
   _rawLimit !== undefined && _rawLimit !== "" && !Number.isNaN(Number(_rawLimit))
     ? Number(_rawLimit) // allows 0 as an intentional "closed" kill-switch
     : 30;
@@ -50,16 +54,18 @@ const capMessage = () =>
 // ---- Per-person daily cap ---------------------------------------------------
 // The site-wide cap above stops the WHOLE app from running up an unbounded
 // bill, but doesn't stop one person from eating the entire day's budget by
-// themselves. This adds a second, per-person limit on top of it. There's no
-// login requirement to start a debate, so "person" is approximated by IP —
-// not perfect (shared networks undercount, VPNs overcount), but a reasonable,
-// low-friction way to keep any one visitor from hogging the shared quota.
+// themselves. This adds a second, per-person limit on top of it.
+//
+// "Person" is the verified signed-in user (their Supabase user id) when
+// they're signed in, or their IP address when they're not. IP-only would be
+// wrong: switching Google accounts on the same device/network would still
+// share one IP-based quota, which defeats the point of a *per-person* limit.
 const _rawPerUserLimit = process.env.DAILY_DEBATE_LIMIT_PER_USER;
-const PER_USER_LIMIT =
+let PER_USER_LIMIT =
   _rawPerUserLimit !== undefined && _rawPerUserLimit !== "" && !Number.isNaN(Number(_rawPerUserLimit))
     ? Number(_rawPerUserLimit)
     : 5; // sensible default — plenty for a real visitor, not enough to blow the budget alone
-const perUserUsage = new Map(); // ip -> { date, count }
+const perUserUsage = new Map(); // key (user id or ip) -> { date, count }
 
 function clientIp(source) {
   // Prefer the X-Forwarded-For header (set by Render's proxy) so this reads
@@ -71,18 +77,57 @@ function clientIp(source) {
   return source.ip || source.handshake?.address || "unknown";
 }
 
-function perUserCapReached(ip) {
-  const entry = perUserUsage.get(ip);
+function perUserCapReached(key) {
+  const entry = perUserUsage.get(key);
   return !!entry && entry.date === utcDate() && entry.count >= PER_USER_LIMIT;
 }
-function recordUserDebate(ip) {
+function recordUserDebate(key) {
   const today = utcDate();
-  const entry = perUserUsage.get(ip);
+  const entry = perUserUsage.get(key);
   if (entry && entry.date === today) entry.count += 1;
-  else perUserUsage.set(ip, { date: today, count: 1 });
+  else perUserUsage.set(key, { date: today, count: 1 });
 }
 const perUserCapMessage = () =>
   `You've reached today's per-person limit (${PER_USER_LIMIT} debates). It resets at midnight UTC — come back tomorrow!`;
+
+// ---- Unlimited access allowlist ---------------------------------------------
+// Emails that skip both caps above entirely and aren't counted — so they
+// don't eat into the shared daily quota either. Two layers: a static
+// baseline via a comma-separated Render env var (always honored, works even
+// if the admin database isn't set up), and a dynamic list managed from the
+// /admin page and stored in Supabase (see admin.js) — e.g. the owner adding
+// a friend's email with one click, no redeploy needed.
+const UNLIMITED_EMAILS = new Set(
+  String(process.env.UNLIMITED_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+// Shared quota check for both /api/start and the start-debate socket event.
+// Verifies the bearer token (if any) to identify a real signed-in user, then
+// applies the unlimited allowlist, the site-wide cap, and the per-person cap
+// in that order. Returns { allowed, key, unlimited } or { allowed: false,
+// message, code }.
+async function checkDebateQuota(source, token) {
+  const user = token ? await verifyUser(token) : null;
+  const email = user?.email || null;
+  // The owner never needs to add themselves to the allowlist — signing in as
+  // the ADMIN_EMAIL account is unlimited automatically.
+  if (isAdmin(user)) return { allowed: true, unlimited: true };
+  if (await isUnlimitedEmail(email, UNLIMITED_EMAILS)) return { allowed: true, unlimited: true };
+  if (capReached()) return { allowed: false, message: capMessage(), code: "site_limit" };
+  const key = user?.id || clientIp(source);
+  if (perUserCapReached(key)) {
+    return { allowed: false, message: perUserCapMessage(), code: "per_user_limit" };
+  }
+  return { allowed: true, key, unlimited: false };
+}
+function recordDebateUsage(quota) {
+  if (quota.unlimited) return; // free access — doesn't touch either counter
+  recordDebate();
+  recordUserDebate(quota.key);
+}
 
 const app = express();
 // So req.ip (used by clientIp above) reflects the real visitor behind
@@ -173,20 +218,103 @@ app.get("/api/usage", (_req, res) => {
   res.json({ used: usage.count, limit: DAILY_LIMIT, date: usage.date });
 });
 
+// ---- Admin (owner-only) ------------------------------------------------
+// Manage who gets unlimited access, and see today's usage. Gated by
+// verifying the bearer token belongs to the ADMIN_EMAIL env var — nobody
+// else, even another signed-in regular user, can reach any of this.
+async function requireAdmin(req, res) {
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const user = token ? await verifyUser(token) : null;
+  if (!isAdmin(user)) {
+    res.status(403).json({ error: "Not authorized." });
+    return null;
+  }
+  return user;
+}
+
+app.get("/api/admin/overview", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  rolloverIfNeeded();
+  try {
+    const allowlist = await listAllowlist();
+    res.json({
+      usage: { used: usage.count, limit: DAILY_LIMIT, date: usage.date },
+      perUserLimit: PER_USER_LIMIT,
+      allowlist,
+    });
+  } catch (err) {
+    console.error("[admin] overview failed:", err.message);
+    res.status(502).json({ error: "Could not load admin data." });
+  }
+});
+
+app.post("/api/admin/allowlist", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Please provide a valid email address." });
+  }
+  try {
+    await addToAllowlist(email, req.body?.note);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[admin] add failed:", err.message);
+    if (err.code === "not_configured") {
+      return res.status(501).json({ error: "Admin storage isn't set up on the server yet." });
+    }
+    res.status(502).json({ error: "Could not add that email. Try again." });
+  }
+});
+
+app.delete("/api/admin/allowlist/:email", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    await removeFromAllowlist(req.params.email);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[admin] remove failed:", err.message);
+    res.status(502).json({ error: "Could not remove that email. Try again." });
+  }
+});
+
+// Nudge the site-wide / per-person daily caps without a redeploy. Either
+// field is optional so the admin page can update just one at a time. Only
+// takes effect until the next restart — Render's free tier restarts
+// periodically, at which point it falls back to the Render env vars, which
+// is where a *permanent* change to the default should still be made.
+app.post("/api/admin/limits", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  const { dailyLimit, perUserLimit } = req.body || {};
+  if (dailyLimit !== undefined) {
+    const n = Number(dailyLimit);
+    if (!Number.isFinite(n) || n < 0) {
+      return res.status(400).json({ error: "dailyLimit must be a number ≥ 0." });
+    }
+    DAILY_LIMIT = Math.floor(n);
+  }
+  if (perUserLimit !== undefined) {
+    const n = Number(perUserLimit);
+    if (!Number.isFinite(n) || n < 0) {
+      return res.status(400).json({ error: "perUserLimit must be a number ≥ 0." });
+    }
+    PER_USER_LIMIT = Math.floor(n);
+  }
+  res.json({ ok: true, dailyLimit: DAILY_LIMIT, perUserLimit: PER_USER_LIMIT });
+});
+
 // Initialize a debate: validates the topic and hands back a session id.
 // The real-time exchange happens over the WebSocket. The debate is only counted
 // against the daily cap when it actually starts (in the socket handler below),
 // so an invalid/empty topic here never consumes quota.
-app.post("/api/start", (req, res) => {
+app.post("/api/start", async (req, res) => {
   const topic = String(req.body?.topic || "").trim();
   if (!topic || topic.length > 200) {
     return res.status(400).json({ error: "Please provide a topic (max 200 characters)." });
   }
-  if (capReached()) {
-    return res.status(429).json({ error: capMessage(), code: "site_limit" });
-  }
-  if (perUserCapReached(clientIp(req))) {
-    return res.status(429).json({ error: perUserCapMessage(), code: "per_user_limit" });
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const quota = await checkDebateQuota(req, token);
+  if (!quota.allowed) {
+    return res.status(429).json({ error: quota.message, code: quota.code });
   }
   res.json({ sessionId: randomUUID(), topic });
 });
@@ -229,28 +357,27 @@ io.on("connection", (socket) => {
   const session = new DebateSession(socket);
   console.log(`[socket] connected ${socket.id}`);
 
-  socket.on("start-debate", ({ topic, language, userName } = {}) => {
-    const clean = String(topic || "").trim();
-    if (!clean) {
-      socket.emit("debate-error", { message: "Enter a topic to start the debate." });
-      return;
-    }
-    // Backstop the daily cap here too, in case a client hits the socket directly
-    // without going through POST /api/start. This is where a debate truly begins,
-    // so this is where we count it.
-    if (capReached()) {
-      socket.emit("debate-error", { message: capMessage(), code: "site_limit" });
-      return;
-    }
-    const ip = clientIp(socket);
-    if (perUserCapReached(ip)) {
-      socket.emit("debate-error", { message: perUserCapMessage(), code: "per_user_limit" });
-      return;
-    }
-    recordDebate();
-    recordUserDebate(ip);
-    session.stop();
-    session.start(clean.slice(0, 200), language, userName);
+  // async because it verifies the bearer token first — catch so a real
+  // failure reports cleanly instead of becoming an unhandled rejection.
+  socket.on("start-debate", ({ topic, language, userName, accessToken } = {}) => {
+    (async () => {
+      const clean = String(topic || "").trim();
+      if (!clean) {
+        socket.emit("debate-error", { message: "Enter a topic to start the debate." });
+        return;
+      }
+      // Backstop the daily cap here too, in case a client hits the socket
+      // directly without going through POST /api/start. This is where a
+      // debate truly begins, so this is where usage actually gets recorded.
+      const quota = await checkDebateQuota(socket, accessToken);
+      if (!quota.allowed) {
+        socket.emit("debate-error", { message: quota.message, code: quota.code });
+        return;
+      }
+      recordDebateUsage(quota);
+      session.stop();
+      session.start(clean.slice(0, 200), language, userName);
+    })().catch((err) => session.fail(err));
   });
 
   socket.on("turn-played", () => session.onTurnPlayed());
@@ -279,5 +406,11 @@ httpServer.listen(PORT, () => {
   }
   if (!process.env.ELEVENLABS_API_KEY) {
     console.warn("⚠ ELEVENLABS_API_KEY is not set — no voices and the microphone / join feature is disabled");
+  }
+  if (!process.env.ADMIN_EMAIL) {
+    console.warn("⚠ ADMIN_EMAIL is not set — the /admin page will refuse everyone until it's set to the owner's email");
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn("⚠ SUPABASE_SERVICE_ROLE_KEY is not set — the admin free-access allowlist won't work until it's added");
   }
 });

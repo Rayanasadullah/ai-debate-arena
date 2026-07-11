@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — AI Debate Arena</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Admin-page-only layout — kept local to this file so it can't affect
+       the main app's styling. Reuses style.css's color variables, fonts,
+       and component classes (.field, .pill-btn, .history-item, etc.) so it
+       still looks like the same product. */
+    .admin-arena { max-width: 640px; gap: 22px; }
+    .admin-header { text-align: left; }
+    .admin-header .title { text-align: left; font-size: 1.6rem; }
+    .admin-header .subtitle { text-align: left; }
+    .admin-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px 20px;
+      background: var(--panel);
+    }
+    .admin-msg { font-size: 0.85rem; color: var(--rex); }
+    .admin-note { font-size: 0.78rem; color: var(--text-dim); line-height: 1.5; }
+    .admin-stats-row { display: flex; gap: 22px; flex-wrap: wrap; }
+    .admin-stat { display: flex; flex-direction: column; gap: 2px; }
+    .admin-stat-num { font-family: var(--font-display); font-size: 1.4rem; font-weight: 700; color: var(--aria); }
+    .admin-stat-label { font-size: 0.68rem; letter-spacing: 0.08em; color: var(--text-dim); text-transform: uppercase; }
+    .admin-limit-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .admin-limit-row .field-label { flex: 1 1 180px; }
+    .admin-limit-row .field { width: 120px; }
+    .admin-add-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .admin-add-row .field { flex: 1 1 180px; }
+    .admin-allowlist { margin-top: 4px; }
+    .admin-allow-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .admin-allow-email { font-size: 0.88rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-allow-note { font-size: 0.72rem; color: var(--text-dim); }
+    .admin-back { display: inline-block; margin-bottom: 4px; }
+    .admin-owner-badge {
+      display: inline-block;
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--aria);
+      border: 1px solid rgba(0, 168, 255, 0.4);
+      border-radius: 999px;
+      padding: 3px 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="arena admin-arena">
+    <a class="admin-back text-btn" href="index.html">&larr; Back to the app</a>
+
+    <header class="admin-header">
+      <h1 class="title">ADMIN <span class="title-vs">CONTROL</span></h1>
+      <p class="subtitle">AI Debate Arena — owner only</p>
+    </header>
+
+    <!-- Signed out -->
+    <section id="admin-gate" class="admin-card">
+      <h3 id="admin-gate-title" style="margin-bottom: 8px;">Sign in</h3>
+      <p class="admin-note" style="margin-bottom: 14px;">Sign in with the owner Google account to manage usage limits and free access.</p>
+      <button id="admin-signin-btn" class="pill-btn google-btn" type="button">
+        <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.9c1.7-1.57 2.7-3.87 2.7-6.61z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.19l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.95v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.95 10.69A5.41 5.41 0 0 1 3.67 9c0-.59.1-1.16.28-1.69V4.98H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.02l3-2.33z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.98l3 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+        </svg>
+        <span>Sign in with Google</span>
+      </button>
+      <p id="admin-gate-msg" class="admin-msg" style="margin-top: 12px;" hidden></p>
+    </section>
+
+    <!-- Signed in, but not the owner account -->
+    <section id="admin-denied" class="admin-card" hidden>
+      <h3 style="margin-bottom: 8px;">Not authorized</h3>
+      <p class="admin-note" style="margin-bottom: 14px;">Signed in as <strong id="admin-denied-email"></strong> — this isn't the owner account, so there's nothing to show here.</p>
+      <button id="admin-signout-btn" class="text-btn" type="button">Sign out</button>
+    </section>
+
+    <!-- Owner dashboard -->
+    <div id="admin-dashboard" hidden style="display: flex; flex-direction: column; gap: 22px;">
+      <section class="admin-card">
+        <div class="section-head" style="margin-bottom: 4px;">
+          <span class="admin-owner-badge" id="admin-owner-email">owner</span>
+          <button id="admin-signout-btn-2" class="text-btn" type="button">Sign out</button>
+        </div>
+      </section>
+
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="section-head">
+          <h3>Today's usage</h3>
+          <button id="admin-refresh-btn" class="text-btn" type="button">Refresh</button>
+        </div>
+        <div class="admin-stats-row">
+          <div class="admin-stat"><span class="admin-stat-num" id="stat-used">–</span><span class="admin-stat-label">used today</span></div>
+          <div class="admin-stat"><span class="admin-stat-num" id="stat-limit">–</span><span class="admin-stat-label">site limit / day</span></div>
+          <div class="admin-stat"><span class="admin-stat-num" id="stat-peruser">–</span><span class="admin-stat-label">per person / day</span></div>
+        </div>
+        <p class="admin-note">Resets at midnight UTC. Counters live in server memory, so they also reset if the server restarts.</p>
+      </section>
+
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <h3>Adjust limits</h3>
+        <div class="admin-limit-row">
+          <label class="field-label" for="limit-daily">Site-wide daily limit</label>
+          <input id="limit-daily" class="field" type="number" min="0" step="1" />
+        </div>
+        <div class="admin-limit-row">
+          <label class="field-label" for="limit-peruser">Per-person daily limit</label>
+          <input id="limit-peruser" class="field" type="number" min="0" step="1" />
+        </div>
+        <button id="limits-save-btn" class="pill-btn" type="button" style="align-self: flex-start;">
+          <span id="limits-save-label">Save limits</span>
+        </button>
+        <p class="admin-note">Takes effect immediately, for everyone. Resets to the Render environment variable default after the next restart — update <code>DAILY_DEBATE_LIMIT</code> / <code>DAILY_DEBATE_LIMIT_PER_USER</code> there too if you want the change to stick for good.</p>
+      </section>
+
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <h3>Free access</h3>
+        <p class="admin-note">You're always unlimited signed in as the owner — no need to add yourself below. Add anyone else's email to give them unlimited debates too, no redeploy needed.</p>
+        <div class="admin-add-row">
+          <input id="allow-email" class="field" type="email" placeholder="friend@example.com" />
+          <input id="allow-note" class="field" type="text" placeholder="Note (optional)" maxlength="120" />
+          <button id="allow-add-btn" class="pill-btn" type="button">
+            <span id="allow-add-label">Add</span>
+          </button>
+        </div>
+        <div id="allowlist" class="history-list admin-allowlist">
+          <p class="history-empty" id="allowlist-empty">No one on the free-access list yet.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="admin-toast" class="toast" role="status"></div>
+
+  <script>
+    window.BACKEND_URL = "https://ai-debate-arena-53zm.onrender.com";
+    window.SUPABASE_URL = "https://jzlhgdhygptvggklwjms.supabase.co";
+    window.SUPABASE_ANON_KEY = "sb_publishable_WnbJLKDf0Op1tjGYM4IUwg_c-OZO8CY";
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
