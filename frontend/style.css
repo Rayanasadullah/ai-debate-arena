@@ -805,8 +805,12 @@ body::after {
      once during an active debate — at full desktop width/padding they don't
      fit a phone screen and overflow off both edges. Pause/Stop collapse to
      icon-only circles (their text label is hidden, `aria-label` covers
-     accessibility) and the mic button's own padding shrinks a bit too, so
-     everything actually stays on screen. */
+     accessibility) — a bare shape reads fine for those two since Stop/Pause
+     icons are near-universal. New debate keeps its text label (see the
+     dedicated mobile block further down): an icon alone for "start a new
+     debate" isn't self-explanatory the same way, so it stays a small labeled
+     pill instead. The mic button's own padding also shrinks a bit, and the
+     row wraps if it still doesn't fit, so everything stays on screen. */
   .dock-row { gap: 8px; flex-wrap: wrap; justify-content: center; }
 
   .mic-btn { padding: 12px 18px; gap: 6px; font-size: 0.66rem; }
@@ -850,19 +854,16 @@ body::after {
   box-shadow: 0 0 20px rgba(0, 168, 255, 0.3);
 }
 
-/* Icon-only on mobile too — see the mic-dock note further up for why
-   (New debate can be visible at the same time as Pause/Stop). This has to
-   live in its own media block after the base .new-btn rule above (not
-   inside the earlier mobile block) so it actually wins the cascade. */
+/* Shrinks on mobile but keeps its text label (unlike Pause/Stop) — see the
+   mic-dock note further up for why. This has to live in its own media block
+   after the base .new-btn rule above (not inside the earlier mobile block)
+   so it actually wins the cascade. */
 @media (max-width: 720px) {
   .new-btn {
-    padding: 0;
-    width: 44px;
-    height: 44px;
-    justify-content: center;
-    gap: 0;
+    padding: 10px 14px;
+    gap: 6px;
+    font-size: 0.6rem;
   }
-  .new-btn .new-label { display: none; }
 }
 
 /* ======= Options drawer ======= */

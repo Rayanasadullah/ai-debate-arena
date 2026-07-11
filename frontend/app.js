@@ -349,17 +349,26 @@ const DEBATES_KEY = "arena-debates";
 const PROFILE_KEY = "arena-profile";
 const MAX_SAVED = 50;
 
+// Namespaced per signed-in Supabase user id so two different Google accounts
+// on the same browser/device never see each other's history or profile name —
+// identity is per-account, not per-device. Signed-out guests share one plain
+// (un-namespaced) bucket, which is fine since that data is never shown to a
+// signed-in account and isn't synced to the cloud either.
+function scopedKey(base) {
+  return currentUser ? `${base}:${currentUser.id}` : base;
+}
+
 function loadDebates() {
-  try { return JSON.parse(localStorage.getItem(DEBATES_KEY)) || []; } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(scopedKey(DEBATES_KEY))) || []; } catch { return []; }
 }
 function saveDebates(list) {
-  try { localStorage.setItem(DEBATES_KEY, JSON.stringify(list.slice(0, MAX_SAVED))); } catch { /* quota */ }
+  try { localStorage.setItem(scopedKey(DEBATES_KEY), JSON.stringify(list.slice(0, MAX_SAVED))); } catch { /* quota */ }
 }
 function loadProfile() {
-  try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {}; } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(scopedKey(PROFILE_KEY))) || {}; } catch { return {}; }
 }
 function saveProfile(p) {
-  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch { /* quota */ }
+  try { localStorage.setItem(scopedKey(PROFILE_KEY), JSON.stringify(p)); } catch { /* quota */ }
 }
 
 // The name to hand ARIA/REX so they can address the human by it — the name
@@ -531,11 +540,18 @@ async function initAuth() {
   updateAuthUI();
   if (currentUser) pullCloudDebates();
 
+  // Every auth change (sign in, sign out, or switching straight from one
+  // Google account to another) re-reads the now-differently-scoped local
+  // storage bucket and re-pulls cloud history, so the UI never shows a
+  // stale mix of the previous account's name/history. Cheap enough to just
+  // always do it rather than special-case which transition this was.
   sb.auth.onAuthStateChange((_event, session) => {
-    const wasSignedIn = !!currentUser;
     currentUser = session?.user || null;
     updateAuthUI();
-    if (currentUser && !wasSignedIn) pullCloudDebates();
+    renderProfileSummary();
+    syncProfileNameField();
+    renderHistory();
+    if (currentUser) pullCloudDebates();
   });
 }
 
@@ -544,7 +560,15 @@ if (els.signinBtn) {
     if (!sb) { toast(t("signInFailed")); return; }
     const { error } = await sb.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        // Forces Google's account chooser every time, instead of silently
+        // reusing whatever Google session cookie is already active — without
+        // this, signing out and picking "Sign in with Google" again (most
+        // noticeable inside an installed/home-screen PWA) can silently log
+        // straight back into the same account with no chooser shown at all.
+        queryParams: { prompt: "select_account" },
+      },
     });
     if (error) toast(t("signInFailed"));
   });
@@ -557,14 +581,14 @@ if (els.signoutBtn) {
 /* ---------------- Welcome splash (every visit + "Log in" header button) ----
    A full-screen intro — a cycling typewriter title (with a dot-cursor that
    just trails the last character — no blinking) over a bottom sheet offering
-   Google sign-in or continuing as a guest. Plays automatically for a couple
-   of seconds on EVERY page load (signed in or not — it's just a nice intro),
-   then fades itself out. Anyone can also bring it back deliberately any time
-   via the "Log in" button in the header while signed out — that version
-   waits for them, it doesn't auto-dismiss. */
+   Google sign-in or continuing as a guest. Plays on EVERY page load (signed
+   in or not — it's just a nice intro) and stays up FOREVER until the human
+   actually taps something — Google sign-in, "Continue without an account",
+   or the close X. No auto-dismiss timer: it used to fade itself out after a
+   couple of seconds, but that meant it could vanish before someone even
+   finished reading it, which defeats the point of asking them to choose. */
 const SPLASH_SEEN_KEY = "arena-splash-seen";
 const SPLASH_PHRASES = ["Let's debate", "Two minds.", "One arena.", "AI Debate Arena"];
-const SPLASH_AUTO_DISMISS_MS = 2600; // "a couple of seconds", then fade into the app
 const SPLASH_FADE_MS = 400;
 
 function initSplash() {
@@ -576,10 +600,7 @@ function initSplash() {
   const googleBtn = document.getElementById("splash-google-btn");
   const skipBtn = document.getElementById("splash-skip-btn");
 
-  let autoDismissTimer = null;
-
   function dismiss() {
-    clearTimeout(autoDismissTimer);
     try { localStorage.setItem(SPLASH_SEEN_KEY, "1"); } catch { /* ignore */ }
     splash.classList.add("fading"); // fade out instead of an abrupt cut
     setTimeout(() => {
@@ -627,15 +648,12 @@ function initSplash() {
     }
   }
 
-  // Reusable: runs automatically on every page load (autoDismiss = true, so
-  // it's a brief intro that fades itself out), and again any time someone
-  // taps "Log in" in the header (autoDismiss = false — that's a deliberate
-  // request to sign in, so it should wait for them, not vanish on its own).
-  function openSplash(autoDismiss) {
-    clearTimeout(autoDismissTimer);
+  // Reusable: runs automatically on every page load, and again any time
+  // someone taps "Log in" in the header. Always waits for an explicit
+  // action now — no timer, no auto-dismiss.
+  function openSplash() {
     splash.classList.remove("fading");
     splash.hidden = false;
-    if (autoDismiss) autoDismissTimer = setTimeout(dismiss, SPLASH_AUTO_DISMISS_MS);
     if (reducedMotion || !typedEl) {
       if (typedEl) typedEl.textContent = SPLASH_PHRASES[SPLASH_PHRASES.length - 1];
       return;
@@ -647,12 +665,19 @@ function initSplash() {
   }
 
   closeBtn?.addEventListener("click", dismiss);
-  skipBtn?.addEventListener("click", dismiss);
+  skipBtn?.addEventListener("click", () => {
+    dismiss();
+    // "Continue without an account" means guest mode for real — if a
+    // session from a previous visit is still lingering, sign it out so the
+    // app actually shows a signed-out state instead of someone else's
+    // account details.
+    if (sb) sb.auth.signOut().catch(() => { /* ignore */ });
+  });
   googleBtn?.addEventListener("click", () => {
     dismiss();
     els.signinBtn?.click(); // reuse the real, already-wired Google sign-in flow
   });
-  els.headerLoginBtn?.addEventListener("click", () => openSplash(false));
+  els.headerLoginBtn?.addEventListener("click", () => openSplash());
 
   // Google sign-in does a full-page redirect away and back — Supabase hands
   // the session back via tokens in the URL (hash for the implicit flow, a
@@ -667,7 +692,7 @@ function initSplash() {
     return;
   }
 
-  openSplash(true); // plays on every genuinely fresh visit
+  openSplash(); // plays on every genuinely fresh visit, waits for a real choice
 }
 
 let currentDebate = null;    // the debate being recorded right now

@@ -230,7 +230,11 @@ els.signinBtn?.addEventListener("click", async () => {
   if (!sb) return;
   await sb.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: window.location.href },
+    // Forces the account chooser instead of silently reusing whatever
+    // Google session is already active in the browser — same fix as the
+    // main app, so switching which Google account manages this page
+    // actually prompts instead of relogging into whoever was last signed in.
+    options: { redirectTo: window.location.href, queryParams: { prompt: "select_account" } },
   });
 });
 
