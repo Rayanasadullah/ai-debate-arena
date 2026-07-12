@@ -1119,12 +1119,9 @@ async function downloadDebatePdfRtl(debate) {
 
   const container = document.createElement("div");
   container.setAttribute("dir", "rtl");
-  // Was positioned at left:-99999px to hide it off-screen — html2canvas
-  // doesn't reliably rasterize elements parked way outside the viewport
-  // (it produced a blank capture, hence the empty PDF). Keeping it at real
-  // on-screen coordinates (0,0) but behind everything via a very negative
-  // z-index is invisible to the user in exactly the same way, but is
-  // actually where html2canvas expects content to be when it captures it.
+  // Real on-screen coordinates (0,0), hidden via a very negative z-index
+  // instead of an offscreen offset — html2canvas needs the element actually
+  // in the viewport to rasterize it.
   container.style.cssText =
     "position:fixed; top:0; left:0; z-index:-9999; width:560px; padding:28px; " +
     "background:#ffffff; font-family:'Vazirmatn', sans-serif; box-sizing:border-box;";
@@ -1143,14 +1140,44 @@ async function downloadDebatePdfRtl(debate) {
     // whatever generic font renders instead (or nothing, if swapped late).
     if (document.fonts?.ready) await document.fonts.ready;
 
-    const doc = new jsPDFCtor();
-    await doc.html(container, {
-      x: 15,
-      y: 15,
-      width: 180,        // target width in the PDF, in mm
-      windowWidth: 560,   // must match the container's CSS width above
-      html2canvas: { scale: 0.34, useCORS: true },
+    // IMPORTANT: do NOT use jsPDF's doc.html(). It clones the source node
+    // into its own internal wrapper (a detached "html2pdf__container" div)
+    // before handing it to html2canvas, and that clone loses our sizing —
+    // it rasterizes as an empty default-size (150x300) canvas regardless of
+    // how the original container is positioned. That's the actual root
+    // cause of the blank Persian PDF: our positioning fix never mattered
+    // because doc.html() wasn't even screenshotting our container.
+    // Rasterizing directly with html2canvas (verified to correctly capture
+    // real pixel content) and manually placing the resulting image with
+    // doc.addImage() sidesteps that internal wrapper entirely.
+    const canvas = await window.html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
     });
+    const imgData = canvas.toDataURL("image/jpeg", 0.92);
+
+    const doc = new jsPDFCtor();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 15;
+    const imgWidth = pageWidth - margin * 2;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    // Long Persian summaries can be taller than one page — slice the image
+    // across as many pages as needed instead of cropping/overflowing.
+    let heightLeft = imgHeight;
+    let position = margin;
+    doc.addImage(imgData, "JPEG", margin, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight - margin * 2;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight - margin;
+      doc.addPage();
+      doc.addImage(imgData, "JPEG", margin, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight - margin * 2;
+    }
+
     const slug = (debate.topic || "debate").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40);
     doc.save(`debate-${slug || "summary"}.pdf`);
   } finally {
