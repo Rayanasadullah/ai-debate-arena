@@ -16,7 +16,7 @@ const { DebateSession } = await import("./debate.js");
 const { transcribeAudio } = await import("./scribe.js");
 const { summarizeDebate } = await import("./claude.js");
 const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js");
-const { isAdmin, isUnlimitedEmail, listAllowlist, addToAllowlist, removeFromAllowlist } = await import("./admin.js");
+const { isAdmin, isUnlimitedEmail, listAllowlist, addToAllowlist, removeFromAllowlist, listUsersWithStats } = await import("./admin.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -248,6 +248,19 @@ app.get("/api/admin/overview", async (req, res) => {
   } catch (err) {
     console.error("[admin] overview failed:", err.message);
     res.status(502).json({ error: "Could not load admin data." });
+  }
+});
+
+// Who has signed in, how many debates each of them has run, and a 30-day
+// site-wide activity series — the data behind the admin page's charts.
+app.get("/api/admin/users", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const data = await listUsersWithStats();
+    res.json(data);
+  } catch (err) {
+    console.error("[admin] users failed:", err.message);
+    res.status(502).json({ error: "Could not load user data." });
   }
 });
 

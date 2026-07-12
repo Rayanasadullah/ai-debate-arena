@@ -50,6 +50,77 @@
       border-radius: 999px;
       padding: 3px 10px;
     }
+
+    /* Analytics dashboard — daily activity chart, per-user usage chart, and
+       the user list. Kept visually consistent with .admin-card / the neon
+       blue+red palette already used everywhere else on this page. */
+    .admin-stats-row.wide { gap: 28px; }
+    .admin-chart-wrap {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px 6px;
+      background: linear-gradient(180deg, rgba(0, 168, 255, 0.05), transparent 60%);
+    }
+    .admin-chart-empty {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 24px 0;
+    }
+    .admin-users-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .user-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 14px;
+      background: var(--panel);
+    }
+    .user-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: linear-gradient(135deg, var(--aria), var(--rex));
+    }
+    .user-avatar-fallback {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(135deg, var(--aria), var(--rex));
+    }
+    .user-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .user-email { font-size: 0.86rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .user-sub { font-size: 0.72rem; color: var(--text-dim); }
+    .user-usage { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; width: 120px; flex-shrink: 0; }
+    .user-usage-count { font-size: 0.74rem; color: var(--aria); font-weight: 600; white-space: nowrap; }
+    .user-usage-bar {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+    .user-usage-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--aria), var(--rex));
+    }
+    @media (max-width: 520px) {
+      .user-usage { width: 72px; }
+      .user-sub { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -106,6 +177,37 @@
         <p class="admin-note">Resets at midnight UTC. Counters live in server memory, so they also reset if the server restarts.</p>
       </section>
 
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="section-head">
+          <h3>Activity overview</h3>
+          <button id="admin-users-refresh-btn" class="text-btn" type="button">Refresh</button>
+        </div>
+        <div class="admin-stats-row wide">
+          <div class="admin-stat"><span class="admin-stat-num" id="stat-total-users">–</span><span class="admin-stat-label">signed-in users</span></div>
+          <div class="admin-stat"><span class="admin-stat-num" id="stat-total-debates">–</span><span class="admin-stat-label">total debates</span></div>
+          <div class="admin-stat"><span class="admin-stat-num" id="stat-avg-debates">–</span><span class="admin-stat-label">avg / user</span></div>
+        </div>
+        <div class="admin-chart-wrap">
+          <canvas id="chart-daily" height="150"></canvas>
+        </div>
+        <p class="admin-note">Debates started per day, last 30 days, by signed-in users only — guests using "Continue without an account" don't sync to the cloud, so they can't appear here. For true site-wide traffic (including guests), see "Today's usage" above, which counts every debate server-side regardless of sign-in.</p>
+      </section>
+
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 16px;">
+        <h3>Debates per user</h3>
+        <div class="admin-chart-wrap">
+          <canvas id="chart-users" height="220"></canvas>
+        </div>
+      </section>
+
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <h3>All users</h3>
+        <p class="admin-note">Everyone who has ever signed in with Google, sorted by how much they've used the app. Guests who chose "Continue without an account" aren't tracked here — there's no identity to attach their usage to.</p>
+        <div id="users-list" class="admin-users-list">
+          <p class="history-empty" id="users-empty">No signed-in users yet.</p>
+        </div>
+      </section>
+
       <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">
         <h3>Adjust limits</h3>
         <div class="admin-limit-row">
@@ -147,6 +249,8 @@
     window.SUPABASE_ANON_KEY = "sb_publishable_WnbJLKDf0Op1tjGYM4IUwg_c-OZO8CY";
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <!-- Charts for the analytics dashboard (daily activity + per-user usage). -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

@@ -44,6 +44,14 @@ const els = {
   allowlist: document.getElementById("allowlist"),
   allowlistEmpty: document.getElementById("allowlist-empty"),
   toast: document.getElementById("admin-toast"),
+  usersRefreshBtn: document.getElementById("admin-users-refresh-btn"),
+  statTotalUsers: document.getElementById("stat-total-users"),
+  statTotalDebates: document.getElementById("stat-total-debates"),
+  statAvgDebates: document.getElementById("stat-avg-debates"),
+  chartDaily: document.getElementById("chart-daily"),
+  chartUsers: document.getElementById("chart-users"),
+  usersList: document.getElementById("users-list"),
+  usersEmpty: document.getElementById("users-empty"),
 };
 
 function toast(message) {
@@ -119,6 +127,209 @@ function renderAllowlist(rows) {
     item.appendChild(delBtn);
 
     els.allowlist.appendChild(item);
+  }
+}
+
+/* ---------------- Analytics: daily activity + per-user usage ----------------
+   Two Chart.js instances, created once and then updated in place on every
+   refresh (rather than destroyed/recreated) so they don't flicker. Reads the
+   app's own CSS variables for color so the charts always match whichever
+   theme (dark/light) the page is currently in. */
+
+let dailyChart = null;
+let usersChart = null;
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function formatRelative(iso) {
+  if (!iso) return "never active";
+  const then = new Date(iso).getTime();
+  const days = Math.floor((Date.now() - then) / 86_400_000);
+  if (days <= 0) return "active today";
+  if (days === 1) return "active yesterday";
+  if (days < 30) return `active ${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `active ${months}mo ago`;
+}
+
+function formatJoined(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function initialsFor(user) {
+  const source = (user.name || user.email || "?").trim();
+  return source.slice(0, 1).toUpperCase();
+}
+
+function renderDailyChart(dailyActivity) {
+  if (!window.Chart || !els.chartDaily) return;
+  const labels = dailyActivity.map((d) =>
+    new Date(d.date + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  );
+  const counts = dailyActivity.map((d) => d.count);
+  const aria = cssVar("--aria") || "#00a8ff";
+  const text = cssVar("--text-dim") || "#8aa";
+
+  if (dailyChart) {
+    dailyChart.data.labels = labels;
+    dailyChart.data.datasets[0].data = counts;
+    dailyChart.update();
+    return;
+  }
+
+  dailyChart = new window.Chart(els.chartDaily, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Debates started",
+          data: counts,
+          borderColor: aria,
+          backgroundColor: `${aria}33`,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          borderWidth: 2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: "rgba(255,255,255,0.06)" } },
+      },
+    },
+  });
+}
+
+function renderUsersChart(users) {
+  if (!window.Chart || !els.chartUsers) return;
+  // Top 15 keeps the chart readable — the full ranked list is still below it.
+  const top = users.slice(0, 15);
+  const labels = top.map((u) => u.name || u.email);
+  const counts = top.map((u) => u.debateCount);
+  const aria = cssVar("--aria") || "#00a8ff";
+  const rex = cssVar("--rex") || "#ff2d55";
+  const text = cssVar("--text-dim") || "#8aa";
+
+  if (usersChart) {
+    usersChart.data.labels = labels;
+    usersChart.data.datasets[0].data = counts;
+    usersChart.update();
+    return;
+  }
+
+  usersChart = new window.Chart(els.chartUsers, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Debates",
+          data: counts,
+          backgroundColor: aria,
+          hoverBackgroundColor: rex,
+          borderRadius: 6,
+          maxBarThickness: 22,
+        },
+      ],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: "rgba(255,255,255,0.06)" } },
+        y: { ticks: { color: text }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderUsersList(users) {
+  els.usersList.querySelectorAll(".user-item").forEach((el) => el.remove());
+  if (!users || !users.length) {
+    els.usersEmpty.hidden = false;
+    return;
+  }
+  els.usersEmpty.hidden = true;
+
+  const max = Math.max(1, ...users.map((u) => u.debateCount));
+  for (const user of users) {
+    const item = document.createElement("div");
+    item.className = "user-item";
+
+    if (user.avatarUrl) {
+      const img = document.createElement("img");
+      img.className = "user-avatar";
+      img.src = user.avatarUrl;
+      img.alt = "";
+      img.onerror = () => { img.replaceWith(fallbackAvatar(user)); };
+      item.appendChild(img);
+    } else {
+      item.appendChild(fallbackAvatar(user));
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "user-meta";
+    const emailEl = document.createElement("span");
+    emailEl.className = "user-email";
+    emailEl.textContent = user.name ? `${user.name} · ${user.email}` : user.email;
+    const subEl = document.createElement("span");
+    subEl.className = "user-sub";
+    subEl.textContent = `Joined ${formatJoined(user.createdAt)} · ${formatRelative(user.lastDebateAt)}`;
+    meta.appendChild(emailEl);
+    meta.appendChild(subEl);
+    item.appendChild(meta);
+
+    const usage = document.createElement("div");
+    usage.className = "user-usage";
+    const countEl = document.createElement("span");
+    countEl.className = "user-usage-count";
+    countEl.textContent = `${user.debateCount} ${user.debateCount === 1 ? "debate" : "debates"}`;
+    const barOuter = document.createElement("div");
+    barOuter.className = "user-usage-bar";
+    const barFill = document.createElement("div");
+    barFill.className = "user-usage-fill";
+    barFill.style.width = `${Math.max(4, Math.round((user.debateCount / max) * 100))}%`;
+    barOuter.appendChild(barFill);
+    usage.appendChild(countEl);
+    usage.appendChild(barOuter);
+    item.appendChild(usage);
+
+    els.usersList.appendChild(item);
+  }
+}
+
+function fallbackAvatar(user) {
+  const el = document.createElement("div");
+  el.className = "user-avatar-fallback";
+  el.textContent = initialsFor(user);
+  return el;
+}
+
+async function loadUsers() {
+  try {
+    const data = await adminFetch("/api/admin/users");
+    const users = data.users || [];
+    const totalDebates = users.reduce((sum, u) => sum + u.debateCount, 0);
+    els.statTotalUsers.textContent = users.length;
+    els.statTotalDebates.textContent = totalDebates;
+    els.statAvgDebates.textContent = users.length ? (totalDebates / users.length).toFixed(1) : "0";
+    renderDailyChart(data.dailyActivity || []);
+    renderUsersChart(users);
+    renderUsersList(users);
+  } catch (err) {
+    toast(err.message || "Could not load user analytics.");
   }
 }
 
@@ -214,6 +425,7 @@ async function checkAccess() {
     els.limitDaily.value = overview.usage.limit;
     els.limitPerUser.value = overview.perUserLimit;
     renderAllowlist(overview.allowlist);
+    loadUsers(); // independent of the overview call above — don't block the rest of the dashboard on it
   } catch (err) {
     if (err.status === 403) {
       els.deniedEmail.textContent = session.user?.email || "";
@@ -247,6 +459,7 @@ els.signoutBtn?.addEventListener("click", signOut);
 els.signoutBtn2?.addEventListener("click", signOut);
 
 els.refreshBtn?.addEventListener("click", loadOverview);
+els.usersRefreshBtn?.addEventListener("click", loadUsers);
 els.limitsSaveBtn?.addEventListener("click", saveLimits);
 els.allowAddBtn?.addEventListener("click", addToAllowlist);
 
