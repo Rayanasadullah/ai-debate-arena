@@ -17,6 +17,17 @@ import { synthesizeSentence } from "./tts.js";
 const MAX_AGENT_TURNS = 8; // 4 rounds of ARIA + REX per debate segment
 const USER_WAIT_TIMEOUT = 60_000; // don't park forever if the mic turn is lost
 
+// Rotated randomly per debate so the very first message in Claude's context
+// isn't byte-for-byte identical every time the same topic is started again.
+// Combined with temperature:1 in claude.js, this helps break the tendency
+// for repeated debates on the same topic to open with near-identical lines.
+const OPENING_PROMPTS = [
+  'The debate topic is: "{topic}". Give your opening argument.',
+  'The debate topic is: "{topic}". Open with your strongest point.',
+  'The debate topic is: "{topic}". Kick off the debate with your take.',
+  'The debate topic is: "{topic}". Start the debate — make your opening case.',
+];
+
 export class DebateSession {
   constructor(socket) {
     this.socket = socket;
@@ -53,9 +64,11 @@ export class DebateSession {
     this.topic = topic;
     this.language = ["en", "de", "fa"].includes(language) ? language : "en";
     this.userName = String(userName || "").trim().slice(0, 60);
-    this.history = [
-      { role: "user", content: `The debate topic is: "${topic}". Give your opening argument.` },
-    ];
+    const openingPrompt = OPENING_PROMPTS[Math.floor(Math.random() * OPENING_PROMPTS.length)].replace(
+      "{topic}",
+      topic
+    );
+    this.history = [{ role: "user", content: openingPrompt }];
     this.active = true;
     this.turnCount = 0;
     this.nextAgent = "ARIA";

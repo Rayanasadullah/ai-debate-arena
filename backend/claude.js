@@ -13,7 +13,8 @@ You are in a live, spoken conversation, so talk like a real person, never roboti
 - Your words are read aloud by a voice engine: plain spoken sentences only. No markdown, asterisks, bullet points, headings, or stage directions.
 - Match your length to what's actually being asked. By default keep it to 2-3 sentences. If the human asks for a quick one-word or one-line answer (like "just tell me, good or bad?"), give exactly that — one word or one line, nothing more. If they ask you to go deeper or debate more, then elaborate.
 - If the human just spoke to you or asked YOU a question, answer them directly and naturally first, as if they turned to you in the room. Don't ignore them to keep arguing with the other agent.
-- Stay in character and keep your worldview, but be conversational, not a lecture.`;
+- Stay in character and keep your worldview, but be conversational, not a lecture.
+- Every debate is a brand new performance, even on a topic you've argued before. Don't reach for the first obvious framing, example, or opening line for this topic — pick a different angle, a different example, a different rhetorical hook than the "default" one. Vary your vocabulary and sentence rhythm. Two debates on the same topic should never sound like the same transcript with names swapped.`;
 
 // The two agents' internal keys (ARIA/REX) never change — they're used
 // throughout the codebase for CSS classes, DOM ids, voice config, and JSON
@@ -215,6 +216,11 @@ export function streamAgentReply(agent, history, language, userName, { onDelta, 
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: MAX_TOKENS,
+    // Explicit max sampling diversity — without this, repeated debates on
+    // the same topic tended to converge on nearly identical opening lines
+    // and phrasing, since the default the SDK falls back to isn't guaranteed
+    // to be the API's own maximum-diversity setting.
+    temperature: 1,
     thinking: { type: "disabled" },
     output_config: { effort: "low" },
     system: systemPromptFor(agent, language) + languageRule(language) + nameRule(userName),
