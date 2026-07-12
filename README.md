@@ -11,14 +11,11 @@ AI Debate Arena is a real-time web app where two AI agents with completely oppos
 
 | | Blue agent | Red agent |
 |---|---|---|
+| Name (English / German) | Nova | Umbra |
+| Name (Persian / فارسی) | دلارام (Delaram) | میرزا (Mirza) |
 | Worldview | Progressive, optimistic, forward-thinking | Skeptical, critical, realist |
 | Style | Eloquent, passionate, confident | Sharp, direct, assertive |
 | Voice | Female — calm and confident | Male — deep and assertive |
-
-Internally they're always `ARIA` (blue) and `REX` (red) — that's fixed in the code (DOM ids, CSS classes, JSON fields) and never shown to users. The display name changes with the debate's language:
-
-- **English / German** — Nova / Umbra
-- **Persian (فارسی)** — دلارام (Delaram) / میرزا (Mirza)
 
 Both agents receive the full conversation history each turn and respond directly to what was just said — including anything the human says through the microphone.
 
@@ -125,9 +122,9 @@ Open **http://localhost:3000**, type a topic, and hit *Ignite debate*.
 
 ## Architecture notes
 
-- **Turn state machine**: `IDLE → ARIA_SPEAKING → REX_SPEAKING → … → USER_TURN`. The server waits for the client's playback acknowledgment before generating the next turn, so interruptions always land where agents can react to them.
+- **Turn state machine**: `IDLE → blue agent speaking → red agent speaking → … → USER_TURN`. The server waits for the client's playback acknowledgment before generating the next turn, so interruptions always land where agents can react to them.
 - **Interruption handling**: speaking into the mic aborts the in-flight Claude stream, clears the browser audio queue, and injects `Human said: …` into the shared history.
-- **Display-name separation**: internal agent keys (`ARIA`/`REX`) never change and never reach the user; `agentDisplayName(agent, language)` resolves the language-appropriate name everywhere — including in the text actually sent back to Claude as conversation history, so the model doesn't see (and echo back) its own internal key.
+- **Display names are resolved per-language everywhere**, including in what's fed back into Claude's own conversation history — so the model never ends up seeing (and echoing back) a name that doesn't match the language it's speaking.
 - **Graceful degradation**: missing TTS keys → text-only debate with natural pacing; API failures → styled on-screen error, never a crash; missing Supabase config → accounts/history features simply don't appear.
 
 ## License
