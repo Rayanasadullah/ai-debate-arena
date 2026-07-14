@@ -121,6 +121,28 @@
       .user-usage { width: 72px; }
       .user-sub { display: none; }
     }
+
+    /* Guest / signed-in / combined toggle for the location chart. */
+    .geo-toggle { display: flex; gap: 8px; flex-wrap: wrap; }
+    .geo-tab {
+      font-family: var(--font-display);
+      font-size: 0.66rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .geo-tab:hover { color: var(--text); }
+    .geo-tab.active {
+      color: var(--aria);
+      border-color: rgba(0, 168, 255, 0.5);
+      background: rgba(0, 168, 255, 0.08);
+    }
   </style>
 </head>
 <body>
@@ -198,6 +220,23 @@
         <div class="admin-chart-wrap">
           <canvas id="chart-users" height="220"></canvas>
         </div>
+      </section>
+
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="section-head">
+          <h3>Users by country</h3>
+          <button id="admin-geo-refresh-btn" class="text-btn" type="button">Refresh</button>
+        </div>
+        <div class="geo-toggle" role="group" aria-label="Audience filter">
+          <button type="button" class="geo-tab active" data-mode="all">Combined</button>
+          <button type="button" class="geo-tab" data-mode="user">Signed-in</button>
+          <button type="button" class="geo-tab" data-mode="guest">Guests</button>
+        </div>
+        <div class="admin-chart-wrap">
+          <canvas id="chart-geo" height="220"></canvas>
+          <p class="admin-chart-empty" id="geo-empty" hidden>No location data yet.</p>
+        </div>
+        <p class="admin-note">Based on the IP address each debate was started from, resolved to a <strong>country only</strong> (never city). Approximate — VPNs and proxies show up as their exit country, not the person's. Counts every debate, guest and signed-in alike.</p>
       </section>
 
       <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">

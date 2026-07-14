@@ -18,6 +18,7 @@ const { summarizeDebate } = await import("./claude.js");
 const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js");
 const { isAdmin, isUnlimitedEmail, listAllowlist, addToAllowlist, removeFromAllowlist, listUsersWithStats } = await import("./admin.js");
 const { TIERS, usageSnapshot, recordDebateStart, recordDebateDuration, formatUnlock } = await import("./limits.js");
+const { recordDebateGeo, listGeoStats } = await import("./geo.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -126,9 +127,10 @@ async function checkDebateQuota(source, token) {
   const user = token ? await verifyUser(token) : null;
   const email = user?.email || null;
   // The owner never needs to add themselves to the allowlist — signing in as
-  // the ADMIN_EMAIL account is unlimited automatically.
-  if (isAdmin(user)) return { allowed: true, unlimited: true };
-  if (await isUnlimitedEmail(email, UNLIMITED_EMAILS)) return { allowed: true, unlimited: true };
+  // the ADMIN_EMAIL account is unlimited automatically. `user` is returned in
+  // every allowed case so the caller can log geo without re-verifying the token.
+  if (isAdmin(user)) return { allowed: true, unlimited: true, user };
+  if (await isUnlimitedEmail(email, UNLIMITED_EMAILS)) return { allowed: true, unlimited: true, user };
   if (capReached()) return { allowed: false, message: capMessage(), code: "site_limit" };
   const context = usageContextFor(source, user);
   const snap = await usageSnapshot(context);
@@ -140,7 +142,7 @@ async function checkDebateQuota(source, token) {
       context,
     };
   }
-  return { allowed: true, unlimited: false, context };
+  return { allowed: true, unlimited: false, context, user };
 }
 
 const app = express();
@@ -289,6 +291,17 @@ app.get("/api/admin/users", async (req, res) => {
   } catch (err) {
     console.error("[admin] users failed:", err.message);
     res.status(502).json({ error: "Could not load user data." });
+  }
+});
+
+// Per-country debate counts (guest vs. signed-in), for the location chart.
+app.get("/api/admin/geo", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    res.json(await listGeoStats());
+  } catch (err) {
+    console.error("[admin] geo failed:", err.message);
+    res.status(502).json({ error: "Could not load location data." });
   }
 });
 
@@ -455,6 +468,15 @@ io.on("connection", (socket) => {
       // captured context) before start() installs the new one.
       session.stop();
       session.start(clean.slice(0, 2000), language, userName, { maxSeconds, usageContext });
+
+      // Log where this debate started from (country only), for the admin
+      // location analytics. Fire-and-forget — never let it delay or fail a
+      // debate. Covers both guests and signed-in users uniformly.
+      recordDebateGeo({
+        ip: clientIp(socket),
+        kind: quota.user?.id ? "user" : "guest",
+        userId: quota.user?.id || null,
+      }).catch((e) => console.error("[geo]", e.message));
     })().catch((err) => session.fail(err));
   });
 

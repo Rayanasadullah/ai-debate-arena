@@ -52,6 +52,10 @@ const els = {
   chartUsers: document.getElementById("chart-users"),
   usersList: document.getElementById("users-list"),
   usersEmpty: document.getElementById("users-empty"),
+  chartGeo: document.getElementById("chart-geo"),
+  geoEmpty: document.getElementById("geo-empty"),
+  geoRefreshBtn: document.getElementById("admin-geo-refresh-btn"),
+  geoTabs: Array.from(document.querySelectorAll(".geo-tab")),
 };
 
 function toast(message) {
@@ -255,6 +259,95 @@ function renderUsersChart(users) {
   });
 }
 
+/* ---------------- Analytics: users by country (Section 2) ----------------
+   IP-based, country-level only. Same create-once/update-in-place Chart.js
+   pattern as the other charts. A toggle picks which population to chart:
+   "all" (combined), "user" (signed-in), or "guest". */
+
+let geoChart = null;
+let geoCountries = []; // [{ country, code, guest, user, total }]
+let geoMode = "all"; // "all" | "user" | "guest"
+
+function geoValue(row, mode) {
+  if (mode === "user") return row.user;
+  if (mode === "guest") return row.guest;
+  return row.total;
+}
+
+function renderGeoChart() {
+  if (!window.Chart || !els.chartGeo) return;
+  // Only countries with a non-zero count for the selected population, top 15.
+  const rows = geoCountries
+    .filter((r) => geoValue(r, geoMode) > 0)
+    .sort((a, b) => geoValue(b, geoMode) - geoValue(a, geoMode))
+    .slice(0, 15);
+
+  const hasData = rows.length > 0;
+  els.chartGeo.style.display = hasData ? "" : "none";
+  if (els.geoEmpty) els.geoEmpty.hidden = hasData;
+  if (!hasData) {
+    if (geoChart) {
+      geoChart.data.labels = [];
+      geoChart.data.datasets[0].data = [];
+      geoChart.update();
+    }
+    return;
+  }
+
+  const labels = rows.map((r) => r.country);
+  const counts = rows.map((r) => geoValue(r, geoMode));
+  const aria = cssVar("--aria") || "#00a8ff";
+  const rex = cssVar("--rex") || "#ff2d55";
+  const text = cssVar("--text-dim") || "#8aa";
+  // Guests lean red, signed-in lean blue, combined blends — a quick visual cue.
+  const color = geoMode === "guest" ? rex : aria;
+
+  if (geoChart) {
+    geoChart.data.labels = labels;
+    geoChart.data.datasets[0].data = counts;
+    geoChart.data.datasets[0].backgroundColor = color;
+    geoChart.update();
+    return;
+  }
+
+  geoChart = new window.Chart(els.chartGeo, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Debates",
+          data: counts,
+          backgroundColor: color,
+          hoverBackgroundColor: rex,
+          borderRadius: 6,
+          maxBarThickness: 22,
+        },
+      ],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: "rgba(255,255,255,0.06)" } },
+        y: { ticks: { color: text }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+async function loadGeo() {
+  try {
+    const data = await adminFetch("/api/admin/geo");
+    geoCountries = data.countries || [];
+    renderGeoChart();
+  } catch (err) {
+    toast(err.message || "Could not load location data.");
+  }
+}
+
 function renderUsersList(users) {
   els.usersList.querySelectorAll(".user-item").forEach((el) => el.remove());
   if (!users || !users.length) {
@@ -426,6 +519,7 @@ async function checkAccess() {
     els.limitPerUser.value = overview.perUserLimit;
     renderAllowlist(overview.allowlist);
     loadUsers(); // independent of the overview call above — don't block the rest of the dashboard on it
+    loadGeo();
   } catch (err) {
     if (err.status === 403) {
       els.deniedEmail.textContent = session.user?.email || "";
@@ -460,8 +554,18 @@ els.signoutBtn2?.addEventListener("click", signOut);
 
 els.refreshBtn?.addEventListener("click", loadOverview);
 els.usersRefreshBtn?.addEventListener("click", loadUsers);
+els.geoRefreshBtn?.addEventListener("click", loadGeo);
 els.limitsSaveBtn?.addEventListener("click", saveLimits);
 els.allowAddBtn?.addEventListener("click", addToAllowlist);
+
+// Location-chart population toggle (Combined / Signed-in / Guests).
+els.geoTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    geoMode = tab.dataset.mode || "all";
+    els.geoTabs.forEach((t) => t.classList.toggle("active", t === tab));
+    renderGeoChart();
+  });
+});
 
 if (sb) {
   sb.auth.onAuthStateChange(() => checkAccess());
