@@ -28,6 +28,10 @@ const els = {
   micHint: document.getElementById("mic-hint"),
   usageMeter: document.getElementById("usage-meter"),
   debateTimer: document.getElementById("debate-timer"),
+  grantNote: document.getElementById("grant-note"),
+  grantNoteText: document.getElementById("grant-note-text"),
+  grantNoteTitle: document.getElementById("grant-note-title"),
+  grantNoteDismiss: document.getElementById("grant-note-dismiss"),
   toast: document.getElementById("toast"),
   newBtn: document.getElementById("new-btn"),
   optionsBtn: document.getElementById("options-btn"),
@@ -132,6 +136,9 @@ const I18N = {
     usageUnlimited: "Unlimited access — no debate limits",
     timeUp: "⏱ time limit reached — the debate ended.",
     timeWarn: "30 seconds left in this debate",
+    grantNoteTitle: "You've been granted access",
+    grantNoteCustom: (d, m) => `You now have ${d} debates and ${m} minutes per day.`,
+    grantNoteFull: "You now have unlimited access.",
     noServer: "Could not reach the arena server.",
     micNeedsHttps: "Voice input needs a secure (https) connection — it works on the deployed site.",
     micDenied: "Microphone access denied — allow it in your browser settings.",
@@ -226,6 +233,9 @@ const I18N = {
     usageUnlimited: "Unbegrenzter Zugang — keine Limits",
     timeUp: "⏱ Zeitlimit erreicht — die Debatte wurde beendet.",
     timeWarn: "Noch 30 Sekunden in dieser Debatte",
+    grantNoteTitle: "Du hast Zugang erhalten",
+    grantNoteCustom: (d, m) => `Du hast jetzt ${d} Debatten und ${m} Minuten pro Tag.`,
+    grantNoteFull: "Du hast jetzt unbegrenzten Zugang.",
     noServer: "Server nicht erreichbar.",
     micNeedsHttps: "Spracheingabe braucht eine sichere (https) Verbindung — auf der veröffentlichten Seite funktioniert sie.",
     micDenied: "Mikrofonzugriff verweigert — erlaube ihn in den Browsereinstellungen.",
@@ -319,6 +329,9 @@ const I18N = {
     usageUnlimited: "دسترسی نامحدود — بدون محدودیت",
     timeUp: "⏱ محدودیت زمانی رسید — مناظره پایان یافت.",
     timeWarn: "۳۰ ثانیه تا پایان این مناظره",
+    grantNoteTitle: "به شما دسترسی داده شد",
+    grantNoteCustom: (d, m) => `اکنون ${d} مناظره و ${m} دقیقه در روز دارید.`,
+    grantNoteFull: "اکنون دسترسی نامحدود دارید.",
     noServer: "اتصال به سرور میدان برقرار نشد.",
     micNeedsHttps: "ورودی صوتی به اتصال امن (https) نیاز دارد — روی سایت منتشرشده کار می‌کند.",
     micDenied: "دسترسی به میکروفون رد شد — آن را در تنظیمات مرورگر مجاز کنید.",
@@ -670,6 +683,7 @@ async function initAuth() {
   currentUser = data?.session?.user || null;
   updateAuthUI();
   refreshUsageMeter(); // signed-in identity known — show their real remaining
+  checkGrantNote(); // show any pending admin grant note for this user
   if (currentUser) pullCloudDebates();
 
   // Every auth change (sign in, sign out, or switching straight from one
@@ -684,6 +698,7 @@ async function initAuth() {
     syncProfileNameField();
     renderHistory();
     refreshUsageMeter(); // account switched — its window differs, re-read it
+    checkGrantNote();
     if (currentUser) pullCloudDebates();
   });
 }
@@ -1653,6 +1668,42 @@ function renderUsageMeter(u) {
 function setStartLocked(locked) {
   usageLocked = locked;
   if (els.startBtn) els.startBtn.disabled = locked;
+}
+
+/* ---------------- Grant note delivery (Section 3) ----------------
+   When an admin grants this signed-in user access with a note, the server holds
+   it until their next page load and hands it over exactly once. Show it as a
+   dismissible banner. Signed-in only — guests have no persistent identity. */
+async function checkGrantNote() {
+  if (!els.grantNote || !currentUser) return;
+  try {
+    const token = await currentAccessToken();
+    if (!token) return;
+    const res = await fetch(`${BACKEND_URL}/api/grant-note`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.note) return;
+    // Note body first, then a one-line summary of what they actually got.
+    let detail = data.note;
+    if (data.grantType === "custom" && data.maxDebates && data.totalMinutes) {
+      detail += `\n${t("grantNoteCustom", data.maxDebates, data.totalMinutes)}`;
+    } else if (data.grantType === "full") {
+      detail += `\n${t("grantNoteFull")}`;
+    }
+    els.grantNoteText.textContent = detail;
+    if (els.grantNoteTitle) els.grantNoteTitle.textContent = t("grantNoteTitle");
+    els.grantNote.hidden = false;
+  } catch {
+    /* non-critical — a missed note just isn't shown */
+  }
+}
+
+if (els.grantNoteDismiss) {
+  els.grantNoteDismiss.addEventListener("click", () => {
+    els.grantNote.hidden = true;
+  });
 }
 
 let countdownTimer = null;

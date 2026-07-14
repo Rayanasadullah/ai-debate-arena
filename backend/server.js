@@ -16,8 +16,8 @@ const { DebateSession } = await import("./debate.js");
 const { transcribeAudio } = await import("./scribe.js");
 const { summarizeDebate } = await import("./claude.js");
 const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js");
-const { isAdmin, isUnlimitedEmail, listAllowlist, addToAllowlist, removeFromAllowlist, listUsersWithStats } = await import("./admin.js");
-const { TIERS, usageSnapshot, recordDebateStart, recordDebateDuration, formatUnlock } = await import("./limits.js");
+const { isAdmin, getUserGrant, getUnseenGrantNote, listAllowlist, addToAllowlist, removeFromAllowlist, listUsersWithStats } = await import("./admin.js");
+const { TIERS, customTier, usageSnapshot, recordDebateStart, recordDebateDuration, formatUnlock } = await import("./limits.js");
 const { recordDebateGeo, listGeoStats } = await import("./geo.js");
 const PORT = process.env.PORT || 3000;
 
@@ -74,18 +74,26 @@ function clientIp(source) {
   return source.ip || source.handshake?.address || "unknown";
 }
 
-// Which rolling-window tier applies to this identity. For now everyone is on
-// the free tier; Section 3 (admin custom allowances) and Section 5 (paid
-// subscribers) will resolve a richer tier from the user's email/subscription.
-function resolveTier(_user) {
-  return TIERS.free;
+// Resolve what applies to this identity: unlimited access, or a rolling-window
+// tier. Admin + full grants (and the static env allowlist) are unlimited;
+// a "custom" grant (Section 3) yields an admin-defined tier; everyone else is
+// on the free tier. Section 5 (paid subscribers) will extend this.
+async function resolveGrantTier(user) {
+  if (isAdmin(user)) return { unlimited: true, tier: null };
+  const grant = await getUserGrant(user?.email || null, UNLIMITED_EMAILS);
+  if (grant?.type === "full") return { unlimited: true, tier: null };
+  if (grant?.type === "custom") {
+    return { unlimited: false, tier: customTier({ maxDebates: grant.maxDebates, totalMinutes: grant.totalMinutes }) };
+  }
+  return { unlimited: false, tier: TIERS.free };
 }
 
 // Build the limits.js context: signed-in users key off their Supabase id and
-// persist to the database; guests key off IP and live in server memory.
-function usageContextFor(source, user) {
-  if (user?.id) return { kind: "user", key: user.id, tier: resolveTier(user) };
-  return { kind: "guest", key: `ip:${clientIp(source)}`, tier: resolveTier(null) };
+// persist to the database; guests key off IP and live in server memory. The
+// tier is resolved by resolveGrantTier above.
+function usageContextFor(source, user, tier) {
+  if (user?.id) return { kind: "user", key: user.id, tier };
+  return { kind: "guest", key: `ip:${clientIp(source)}`, tier };
 }
 
 // Free-tier debate-count cap, surfaced to the admin page (and editable there).
@@ -125,14 +133,13 @@ const UNLIMITED_EMAILS = new Set(
 // Returns { allowed:true, unlimited, context } or { allowed:false, message, code }.
 async function checkDebateQuota(source, token) {
   const user = token ? await verifyUser(token) : null;
-  const email = user?.email || null;
   // The owner never needs to add themselves to the allowlist — signing in as
   // the ADMIN_EMAIL account is unlimited automatically. `user` is returned in
   // every allowed case so the caller can log geo without re-verifying the token.
-  if (isAdmin(user)) return { allowed: true, unlimited: true, user };
-  if (await isUnlimitedEmail(email, UNLIMITED_EMAILS)) return { allowed: true, unlimited: true, user };
+  const { unlimited, tier } = await resolveGrantTier(user);
+  if (unlimited) return { allowed: true, unlimited: true, user };
   if (capReached()) return { allowed: false, message: capMessage(), code: "site_limit" };
-  const context = usageContextFor(source, user);
+  const context = usageContextFor(source, user, tier);
   const snap = await usageSnapshot(context);
   if (!snap.allowed) {
     return {
@@ -238,17 +245,35 @@ app.get("/api/usage", async (req, res) => {
   rolloverIfNeeded();
   const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const user = token ? await verifyUser(token) : null;
-  // Unlimited identities (owner + allowlist) report no limits at all.
-  if (isAdmin(user) || (await isUnlimitedEmail(user?.email || null, UNLIMITED_EMAILS))) {
+  const { unlimited, tier } = await resolveGrantTier(user);
+  // Unlimited identities (owner + full grants) report no limits at all.
+  if (unlimited) {
     return res.json({ unlimited: true, site: { used: usage.count, limit: DAILY_LIMIT } });
   }
-  const snap = await usageSnapshot(usageContextFor(req, user));
+  // Custom-grant users get a tier with their admin-set numbers; everyone else free.
+  const snap = await usageSnapshot(usageContextFor(req, user, tier));
   res.json({
     unlimited: false,
     ...snap,
     unlock: formatUnlock(snap.unlockAt),
     site: { used: usage.count, limit: DAILY_LIMIT },
   });
+});
+
+// One-shot delivery of an admin grant note to the signed-in recipient. Returns
+// { note, ... } the first time they load a page after being granted access,
+// then marks it seen so it never shows again (Section 3). Signed-in only —
+// guests have no persistent identity to attach a note to.
+app.get("/api/grant-note", async (req, res) => {
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const user = token ? await verifyUser(token) : null;
+  if (!user?.email) return res.json({ note: null });
+  try {
+    res.json((await getUnseenGrantNote(user.email)) || { note: null });
+  } catch (err) {
+    console.error("[grant-note] failed:", err.message);
+    res.json({ note: null });
+  }
 });
 
 // ---- Admin (owner-only) ------------------------------------------------
@@ -311,8 +336,19 @@ app.post("/api/admin/allowlist", async (req, res) => {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: "Please provide a valid email address." });
   }
+  // grantType "custom" needs a positive debate count and minute budget; anything
+  // else is treated as a full (unlimited) grant, preserving the old behavior.
+  let grant = { type: "full" };
+  if (req.body?.grantType === "custom") {
+    const maxDebates = Number(req.body?.maxDebates);
+    const totalMinutes = Number(req.body?.totalMinutes);
+    if (!Number.isFinite(maxDebates) || maxDebates <= 0 || !Number.isFinite(totalMinutes) || totalMinutes <= 0) {
+      return res.status(400).json({ error: "Custom access needs a debate count and a time budget above zero." });
+    }
+    grant = { type: "custom", maxDebates, totalMinutes };
+  }
   try {
-    await addToAllowlist(email, req.body?.note);
+    await addToAllowlist(email, req.body?.note, grant);
     res.json({ ok: true });
   } catch (err) {
     console.error("[admin] add failed:", err.message);

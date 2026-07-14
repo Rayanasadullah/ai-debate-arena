@@ -122,9 +122,9 @@
       .user-sub { display: none; }
     }
 
-    /* Guest / signed-in / combined toggle for the location chart. */
+    /* Pill toggles: location-chart audience + access-grant type. */
     .geo-toggle { display: flex; gap: 8px; flex-wrap: wrap; }
-    .geo-tab {
+    .geo-tab, .grant-tab {
       font-family: var(--font-display);
       font-size: 0.66rem;
       letter-spacing: 0.08em;
@@ -137,12 +137,23 @@
       cursor: pointer;
       transition: color 0.15s, border-color 0.15s, background 0.15s;
     }
-    .geo-tab:hover { color: var(--text); }
-    .geo-tab.active {
+    .geo-tab:hover, .grant-tab:hover { color: var(--text); }
+    .geo-tab.active, .grant-tab.active {
       color: var(--aria);
       border-color: rgba(0, 168, 255, 0.5);
       background: rgba(0, 168, 255, 0.08);
     }
+    .admin-allow-badge {
+      display: inline-block;
+      font-size: 0.64rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      padding: 1px 8px;
+      margin-right: 6px;
+    }
+    .admin-allow-badge.full { color: var(--aria); border: 1px solid rgba(0, 168, 255, 0.4); }
+    .admin-allow-badge.custom { color: var(--rex); border: 1px solid rgba(255, 45, 85, 0.4); }
   </style>
 </head>
 <body>
@@ -264,8 +275,18 @@
       </section>
 
       <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">
-        <h3>Free access</h3>
-        <p class="admin-note">You're always unlimited signed in as the owner — no need to add yourself below. Add anyone else's email to give them unlimited debates too, no redeploy needed.</p>
+        <h3>Access grants</h3>
+        <p class="admin-note">You're always unlimited signed in as the owner — no need to add yourself. Grant anyone else by email: <strong>Full access</strong> removes all limits, or <strong>Custom</strong> gives them a specific number of debates and minutes (same rolling 24h window as the free tier, just your numbers). An optional note is shown to them in-app the next time they open the site.</p>
+        <div class="geo-toggle" role="group" aria-label="Grant type">
+          <button type="button" class="grant-tab active" data-grant="full">Full access</button>
+          <button type="button" class="grant-tab" data-grant="custom">Custom limits</button>
+        </div>
+        <div id="grant-custom-fields" class="admin-limit-row" hidden>
+          <label class="field-label" for="grant-debates">Debates / 24h</label>
+          <input id="grant-debates" class="field" type="number" min="1" step="1" placeholder="25" />
+          <label class="field-label" for="grant-minutes">Minutes / 24h</label>
+          <input id="grant-minutes" class="field" type="number" min="1" step="1" placeholder="240" />
+        </div>
         <div class="admin-add-row">
           <input id="allow-email" class="field" type="email" placeholder="friend@example.com" />
           <input id="allow-note" class="field" type="text" placeholder="Note (optional)" maxlength="120" />
@@ -274,7 +295,7 @@
           </button>
         </div>
         <div id="allowlist" class="history-list admin-allowlist">
-          <p class="history-empty" id="allowlist-empty">No one on the free-access list yet.</p>
+          <p class="history-empty" id="allowlist-empty">No access grants yet.</p>
         </div>
       </section>
     </div>

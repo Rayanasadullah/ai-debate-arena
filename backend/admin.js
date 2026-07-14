@@ -70,18 +70,32 @@ export async function listAllowlist() {
   return supaFetch("unlimited_access?select=*&order=added_at.desc");
 }
 
-export async function addToAllowlist(email, note) {
+// Add or update a grant for an email. `grant` is either { type: "full" } (no
+// limits) or { type: "custom", maxDebates, totalMinutes } (admin-set caps,
+// enforced with the same rolling window as the free tier). Upserts by email;
+// note_seen is reset to false so a new/changed note gets delivered once.
+export async function addToAllowlist(email, note, grant = { type: "full" }) {
   if (!adminConfigured()) {
     const err = new Error("Admin storage isn't configured on the server yet.");
     err.code = "not_configured";
     throw err;
   }
+  const isCustom = grant?.type === "custom";
   await supaFetch("unlimited_access", {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify([{ email: email.toLowerCase(), note: note || null }]),
+    body: JSON.stringify([
+      {
+        email: email.toLowerCase(),
+        note: note || null,
+        note_seen: false,
+        grant_type: isCustom ? "custom" : "full",
+        max_debates: isCustom ? Math.max(0, Math.floor(Number(grant.maxDebates) || 0)) : null,
+        total_minutes: isCustom ? Math.max(0, Math.floor(Number(grant.totalMinutes) || 0)) : null,
+      },
+    ]),
   });
-  cache.at = 0; // force a fresh read next time isUnlimitedEmail checks
+  cache.at = 0; // force a fresh grant-cache read on the next quota check
 }
 
 export async function removeFromAllowlist(email) {
@@ -152,25 +166,77 @@ export async function listUsersWithStats() {
 }
 
 // Cached briefly so a debate-start check doesn't hit the database on every
-// single request — a new admin addition takes up to CACHE_MS to take effect
-// on its own, but add/removeFromAllowlist above also force an immediate
-// refresh so changes made from the admin page apply right away.
-let cache = { emails: new Set(), at: 0 };
+// single request — a new admin change takes up to CACHE_MS to take effect on
+// its own, but add/removeFromAllowlist above also force an immediate refresh
+// so changes made from the admin page apply right away. The cache maps email →
+// grant ({ type, maxDebates, totalMinutes }) so both the unlimited check and
+// the custom-tier resolution read from one place.
+let cache = { grants: new Map(), at: 0 };
 const CACHE_MS = 30_000;
 
-export async function isUnlimitedEmail(email, staticEmails) {
-  const clean = String(email || "").trim().toLowerCase();
-  if (!clean) return false;
-  if (staticEmails.has(clean)) return true; // UNLIMITED_EMAILS env var, always honored
-  if (!adminConfigured()) return false;
-  if (Date.now() - cache.at > CACHE_MS) {
-    try {
-      const rows = await listAllowlist();
-      cache = { emails: new Set(rows.map((r) => r.email.toLowerCase())), at: Date.now() };
-    } catch (err) {
-      console.error("[admin] allowlist refresh failed:", err.message);
-      // Keep serving the last-known-good cache rather than failing debate starts.
+async function refreshGrantCache() {
+  if (Date.now() - cache.at <= CACHE_MS) return;
+  try {
+    const rows = await listAllowlist();
+    const grants = new Map();
+    for (const r of rows || []) {
+      grants.set(r.email.toLowerCase(), {
+        type: r.grant_type === "custom" ? "custom" : "full",
+        maxDebates: r.max_debates,
+        totalMinutes: r.total_minutes,
+      });
     }
+    cache = { grants, at: Date.now() };
+  } catch (err) {
+    console.error("[admin] allowlist refresh failed:", err.message);
+    // Keep serving the last-known-good cache rather than failing debate starts.
   }
-  return cache.emails.has(clean);
+}
+
+// The grant for an email: { type: "full" } | { type: "custom", maxDebates,
+// totalMinutes } | null. Emails in the static UNLIMITED_EMAILS env var are
+// always full grants. Used by the server to decide unlimited vs. a custom tier.
+export async function getUserGrant(email, staticEmails) {
+  const clean = String(email || "").trim().toLowerCase();
+  if (!clean) return null;
+  if (staticEmails && staticEmails.has(clean)) return { type: "full" };
+  if (!adminConfigured()) return null;
+  await refreshGrantCache();
+  return cache.grants.get(clean) || null;
+}
+
+// Back-compat helper: true only for FULL grants (custom grants are limited, so
+// they are not "unlimited"). Kept so existing callers read cleanly.
+export async function isUnlimitedEmail(email, staticEmails) {
+  const grant = await getUserGrant(email, staticEmails);
+  return grant?.type === "full";
+}
+
+// One-shot delivery of a grant note: returns the unseen note for this email (if
+// any) and immediately marks it seen so it's shown exactly once. Returns null
+// when there's no note, it was already seen, or storage isn't configured.
+export async function getUnseenGrantNote(email) {
+  const clean = String(email || "").trim().toLowerCase();
+  if (!adminConfigured() || !clean) return null;
+  try {
+    const rows = await supaFetch(
+      `unlimited_access?email=eq.${encodeURIComponent(clean)}&select=note,note_seen,grant_type,max_debates,total_minutes`
+    );
+    const row = rows && rows[0];
+    if (!row || !row.note || row.note_seen) return null;
+    await supaFetch(`unlimited_access?email=eq.${encodeURIComponent(clean)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ note_seen: true }),
+    });
+    return {
+      note: row.note,
+      grantType: row.grant_type === "custom" ? "custom" : "full",
+      maxDebates: row.max_debates,
+      totalMinutes: row.total_minutes,
+    };
+  } catch (err) {
+    console.error("[admin] grant-note fetch failed:", err.message);
+    return null;
+  }
 }

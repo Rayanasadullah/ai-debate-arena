@@ -730,6 +730,44 @@ body::after {
   color: rgba(232, 240, 254, 0.35);
 }
 
+/* ======= Grant note banner (Section 3) ======= */
+.grant-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 168, 255, 0.4);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(0, 168, 255, 0.12), rgba(0, 168, 255, 0.04));
+}
+.grant-note-body { flex: 1; min-width: 0; }
+.grant-note-body strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  color: var(--aria);
+  margin-bottom: 3px;
+}
+.grant-note-body p {
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.grant-note-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.grant-note-close:hover { color: var(--text); }
+
 /* ======= Usage meter + debate countdown (Section 1) ======= */
 .usage-meter {
   margin: 10px auto 0;

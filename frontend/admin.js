@@ -43,6 +43,10 @@ const els = {
   allowAddLabel: document.getElementById("allow-add-label"),
   allowlist: document.getElementById("allowlist"),
   allowlistEmpty: document.getElementById("allowlist-empty"),
+  grantTabs: Array.from(document.querySelectorAll(".grant-tab")),
+  grantCustomFields: document.getElementById("grant-custom-fields"),
+  grantDebates: document.getElementById("grant-debates"),
+  grantMinutes: document.getElementById("grant-minutes"),
   toast: document.getElementById("admin-toast"),
   usersRefreshBtn: document.getElementById("admin-users-refresh-btn"),
   statTotalUsers: document.getElementById("stat-total-users"),
@@ -113,10 +117,26 @@ function renderAllowlist(rows) {
     emailEl.className = "admin-allow-email";
     emailEl.textContent = row.email;
     meta.appendChild(emailEl);
+
+    // Grant-type badge + a summary of custom numbers.
+    const isCustom = row.grant_type === "custom";
+    const detail = document.createElement("span");
+    detail.className = "admin-allow-note";
+    const badge = document.createElement("span");
+    badge.className = `admin-allow-badge ${isCustom ? "custom" : "full"}`;
+    badge.textContent = isCustom ? "Custom" : "Full";
+    detail.appendChild(badge);
+    detail.appendChild(
+      document.createTextNode(
+        isCustom ? `${row.max_debates ?? "–"} debates · ${row.total_minutes ?? "–"} min / 24h` : "unlimited"
+      )
+    );
+    meta.appendChild(detail);
+
     if (row.note) {
       const noteEl = document.createElement("span");
       noteEl.className = "admin-allow-note";
-      noteEl.textContent = row.note;
+      noteEl.textContent = `“${row.note}”`;
       meta.appendChild(noteEl);
     }
     item.appendChild(meta);
@@ -460,22 +480,34 @@ async function saveLimits() {
   }
 }
 
+let grantType = "full"; // "full" | "custom"
+
 async function addToAllowlist() {
   const email = els.allowEmail.value.trim();
   if (!email) {
     toast("Enter an email first.");
     return;
   }
+  const payload = { email, note: els.allowNote.value.trim(), grantType };
+  if (grantType === "custom") {
+    const maxDebates = Number(els.grantDebates.value);
+    const totalMinutes = Number(els.grantMinutes.value);
+    if (!(maxDebates > 0) || !(totalMinutes > 0)) {
+      toast("Custom access needs a debate count and minutes above zero.");
+      return;
+    }
+    payload.maxDebates = maxDebates;
+    payload.totalMinutes = totalMinutes;
+  }
   els.allowAddBtn.disabled = true;
   els.allowAddLabel.textContent = "Adding…";
   try {
-    await adminFetch("/api/admin/allowlist", {
-      method: "POST",
-      body: JSON.stringify({ email, note: els.allowNote.value.trim() }),
-    });
+    await adminFetch("/api/admin/allowlist", { method: "POST", body: JSON.stringify(payload) });
     els.allowEmail.value = "";
     els.allowNote.value = "";
-    toast(`${email} now has free access.`);
+    els.grantDebates.value = "";
+    els.grantMinutes.value = "";
+    toast(grantType === "custom" ? `${email} granted custom access.` : `${email} now has full access.`);
     await loadOverview();
   } catch (err) {
     toast(err.message || "Could not add that email.");
@@ -564,6 +596,16 @@ els.geoTabs.forEach((tab) => {
     geoMode = tab.dataset.mode || "all";
     els.geoTabs.forEach((t) => t.classList.toggle("active", t === tab));
     renderGeoChart();
+  });
+});
+
+// Access-grant type toggle (Full access / Custom limits) — reveals the custom
+// debate-count + minutes fields only when "Custom" is selected.
+els.grantTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    grantType = tab.dataset.grant || "full";
+    els.grantTabs.forEach((t) => t.classList.toggle("active", t === tab));
+    if (els.grantCustomFields) els.grantCustomFields.hidden = grantType !== "custom";
   });
 });
 

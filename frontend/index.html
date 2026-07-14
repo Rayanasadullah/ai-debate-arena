@@ -50,6 +50,16 @@
   </div>
 
   <div id="arena" class="arena">
+    <!-- Grant note: shown once when an admin has granted this signed-in user
+         access with a note attached (Section 3). Dismissible. -->
+    <div id="grant-note" class="grant-note" hidden role="status">
+      <div class="grant-note-body">
+        <strong id="grant-note-title">You've been granted access</strong>
+        <p id="grant-note-text"></p>
+      </div>
+      <button id="grant-note-dismiss" class="grant-note-close" type="button" aria-label="Dismiss">✕</button>
+    </div>
+
     <!-- ======= Header ======= -->
     <header class="arena-header">
       <div class="header-bar">
