@@ -518,6 +518,14 @@ function applyLanguage(lang) {
     b.classList.toggle("active", b.dataset.lang === currentLang)
   );
   try { localStorage.setItem("arena-lang", currentLang); } catch { /* ignore */ }
+
+  // The usage meter ("N of 6 debates left · N min left") is otherwise only
+  // refreshed at idle moments (load, after a debate, after auth changes) —
+  // without this it keeps showing stale-language text after a language
+  // switch, and under RTL the leftover English string visually reorders its
+  // numbers via the bidi algorithm. Skip it mid-debate (stopBtn visible)
+  // since refreshUsageMeter() would otherwise re-show/re-enable it early.
+  if (els.usageMeter && els.stopBtn && els.stopBtn.hidden) refreshUsageMeter();
 }
 
 /* ---------------- Local persistence (debates + profile) ----------------
