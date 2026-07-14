@@ -753,6 +753,28 @@ body::after {
   .kw { transition: none; }
 }
 
+/* ======= Subscription / Pro (Section 5) ======= */
+.subscription-card { display: flex; flex-direction: column; gap: 10px; }
+.sub-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.sub-badge {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: #0b1120;
+  background: linear-gradient(90deg, var(--aria), var(--rex));
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-weight: 700;
+}
+.sub-badge.on { background: #2ecc71; color: #06210f; }
+.sub-pitch-text, .sub-active-text { font-size: 0.85rem; color: var(--text-dim); line-height: 1.4; margin: 0; }
+.sub-benefits { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; padding: 0; }
+.sub-benefits li { font-size: 0.92rem; color: var(--text); }
+.sub-benefits strong { color: var(--aria); }
+.sub-was { color: var(--text-dim); font-size: 0.8rem; }
+.sub-fineprint { font-size: 0.78rem; color: var(--text-dim); margin: 0 0 14px; }
+
 /* ======= Grant note banner (Section 3) ======= */
 .grant-note {
   display: flex;

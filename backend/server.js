@@ -20,6 +20,8 @@ const { isAdmin, getUserGrant, getUnseenGrantNote, listAllowlist, addToAllowlist
 const { TIERS, customTier, usageSnapshot, recordDebateStart, recordDebateDuration, formatUnlock } = await import("./limits.js");
 const { recordDebateGeo, listGeoStats } = await import("./geo.js");
 const { serviceCredits } = await import("./credits.js");
+const { stripeConfigured, createCheckoutSession, createBillingPortalSession, verifyWebhook } = await import("./stripe.js");
+const { getSubscription, upsertSubscription, isActiveSubscriber } = await import("./subscriptions.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -83,8 +85,13 @@ async function resolveGrantTier(user) {
   if (isAdmin(user)) return { unlimited: true, tier: null };
   const grant = await getUserGrant(user?.email || null, UNLIMITED_EMAILS);
   if (grant?.type === "full") return { unlimited: true, tier: null };
+  // Admin custom grants are comps and take precedence over a paid subscription.
   if (grant?.type === "custom") {
     return { unlimited: false, tier: customTier({ maxDebates: grant.maxDebates, totalMinutes: grant.totalMinutes }) };
+  }
+  // Active Stripe subscribers get the higher subscriber tier (Section 5).
+  if (user?.id && (await isActiveSubscriber(user.id))) {
+    return { unlimited: false, tier: TIERS.subscriber };
   }
   return { unlimited: false, tier: TIERS.free };
 }
@@ -161,6 +168,48 @@ app.set("trust proxy", true);
 // production, so the REST endpoints below need CORS headers too — the
 // Socket.IO cors option further down only covers the WebSocket connection.
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
+
+// Stripe webhook (Section 5) — registered BEFORE express.json() so it receives
+// the raw request body, which is required to verify the Stripe signature.
+// Fully handles the request, so express.json() below never runs for this path.
+app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  let event;
+  try {
+    event = verifyWebhook(req.body.toString("utf8"), req.headers["stripe-signature"]);
+  } catch (err) {
+    console.error("[stripe] webhook verify failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  try {
+    const obj = event.data?.object || {};
+    if (event.type === "checkout.session.completed") {
+      const userId = obj.client_reference_id || obj.metadata?.user_id;
+      if (userId) {
+        await upsertSubscription(userId, {
+          customerId: obj.customer,
+          subscriptionId: obj.subscription,
+          status: "active",
+        });
+      }
+    } else if (event.type.startsWith("customer.subscription.")) {
+      const userId = obj.metadata?.user_id;
+      if (userId) {
+        const status = event.type === "customer.subscription.deleted" ? "canceled" : obj.status;
+        await upsertSubscription(userId, {
+          customerId: obj.customer,
+          subscriptionId: obj.id,
+          status,
+          currentPeriodEnd: obj.current_period_end,
+        });
+      }
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error("[stripe] webhook handler failed:", err.message);
+    res.status(500).json({ error: "handler error" });
+  }
+});
+
 app.use(express.json());
 
 // Serve the frontend locally (Netlify serves it in production).
@@ -274,6 +323,68 @@ app.get("/api/grant-note", async (req, res) => {
   } catch (err) {
     console.error("[grant-note] failed:", err.message);
     res.json({ note: null });
+  }
+});
+
+// ---- Subscriptions (Stripe, Section 5) --------------------------------------
+function bearerUser(req) {
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  return token ? verifyUser(token) : Promise.resolve(null);
+}
+function frontendOrigin(req) {
+  return process.env.FRONTEND_ORIGIN || req.headers.origin || "";
+}
+
+// Start a checkout — returns a Stripe-hosted URL for the client to redirect to.
+app.post("/api/subscribe", async (req, res) => {
+  if (!stripeConfigured()) return res.status(501).json({ error: "Subscriptions aren't set up on the server yet." });
+  const user = await bearerUser(req);
+  if (!user?.id) return res.status(401).json({ error: "Sign in to subscribe." });
+  if (await isActiveSubscriber(user.id)) return res.status(409).json({ error: "You're already subscribed.", code: "already_subscribed" });
+  const origin = frontendOrigin(req);
+  try {
+    const session = await createCheckoutSession({
+      userId: user.id,
+      email: user.email,
+      successUrl: `${origin}/?subscribed=1`,
+      cancelUrl: `${origin}/?subscribe_cancelled=1`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("[stripe] checkout failed:", err.message);
+    res.status(502).json({ error: "Couldn't start checkout. Try again in a moment." });
+  }
+});
+
+// Is the signed-in user an active subscriber? Drives the "Pro" UI.
+app.get("/api/subscription", async (req, res) => {
+  const user = await bearerUser(req);
+  if (!user?.id) return res.json({ active: false });
+  const active = await isActiveSubscriber(user.id);
+  const sub = active ? await getSubscription(user.id) : null;
+  res.json({
+    active,
+    currentPeriodEnd: sub?.current_period_end || null,
+    canManage: Boolean(sub?.stripe_customer_id),
+  });
+});
+
+// Stripe-hosted billing portal so a subscriber can update card or cancel.
+app.post("/api/billing-portal", async (req, res) => {
+  if (!stripeConfigured()) return res.status(501).json({ error: "Subscriptions aren't set up yet." });
+  const user = await bearerUser(req);
+  if (!user?.id) return res.status(401).json({ error: "Sign in first." });
+  const sub = await getSubscription(user.id);
+  if (!sub?.stripe_customer_id) return res.status(404).json({ error: "No subscription to manage." });
+  try {
+    const session = await createBillingPortalSession({
+      customerId: sub.stripe_customer_id,
+      returnUrl: `${frontendOrigin(req)}/`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("[stripe] portal failed:", err.message);
+    res.status(502).json({ error: "Couldn't open the billing portal. Try again." });
   }
 });
 

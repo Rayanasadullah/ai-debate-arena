@@ -246,6 +246,26 @@
       <button id="signout-btn" class="text-btn" type="button">Sign out</button>
     </section>
 
+    <!-- Subscription (Section 5) — signed-in only; free vs. Pro state toggled in app.js. -->
+    <section class="panel-section subscription-card" id="subscription-card" hidden>
+      <div id="sub-free">
+        <div class="sub-head">
+          <span class="sub-badge">PRO</span>
+          <p class="sub-pitch-text" id="sub-pitch-text">Debate more, longer — 25 debates and 4 hours a day, up to 30 min each.</p>
+        </div>
+        <button id="subscribe-btn" class="pill-btn" type="button">
+          <span id="subscribe-btn-label">Go Pro — $10/mo</span>
+        </button>
+      </div>
+      <div id="sub-active" hidden>
+        <div class="sub-head">
+          <span class="sub-badge on">PRO</span>
+          <p class="sub-active-text" id="sub-active-text">You're on Pro.</p>
+        </div>
+        <button id="sub-manage-btn" class="text-btn" type="button">Manage subscription</button>
+      </div>
+    </section>
+
     <!-- Only shown once signed in — there's nothing to save a name against otherwise.
          Clickable summary row that expands into the actual settings, instead of
          dumping a bare name field straight into the drawer. -->
@@ -348,6 +368,27 @@
     <input id="notify-email" class="field" type="email" maxlength="200" placeholder="you@example.com" />
     <button id="notify-submit" class="pill-btn" type="button">
       <span id="notify-submit-label">Notify me</span>
+    </button>
+  </div>
+
+  <!-- ======= Subscribe explainer — shown before redirecting to Stripe (Section 5) ======= -->
+  <div id="subscribe-overlay" class="overlay" hidden></div>
+  <div id="subscribe-modal" class="feedback-modal" hidden role="dialog" aria-modal="true" aria-labelledby="subscribe-modal-title">
+    <button id="subscribe-close" class="icon-btn modal-close" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+        <path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.88 18.3 9.17 12 2.88 5.71 4.3 4.29l6.29 6.3 6.3-6.3z"/>
+      </svg>
+    </button>
+    <h3 id="subscribe-modal-title">AI Debate Arena Pro</h3>
+    <p id="subscribe-modal-sub" class="feedback-sub">For $10/month you get a lot more arena time:</p>
+    <ul class="sub-benefits" id="sub-benefits">
+      <li id="sub-benefit-1"><strong>25</strong> debates per day <span class="sub-was">(free: 6)</span></li>
+      <li id="sub-benefit-2"><strong>4 hours</strong> of debate time per day <span class="sub-was">(free: 30 min)</span></li>
+      <li id="sub-benefit-3">Up to <strong>30 min</strong> per debate <span class="sub-was">(free: 5 min)</span></li>
+    </ul>
+    <p class="sub-fineprint" id="sub-fineprint">$10/month, billed monthly. Cancel anytime. Card or PayPal.</p>
+    <button id="subscribe-go" class="pill-btn" type="button">
+      <span id="subscribe-go-label">Continue to checkout</span>
     </button>
   </div>
 

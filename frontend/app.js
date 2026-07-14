@@ -32,6 +32,17 @@ const els = {
   grantNoteText: document.getElementById("grant-note-text"),
   grantNoteTitle: document.getElementById("grant-note-title"),
   grantNoteDismiss: document.getElementById("grant-note-dismiss"),
+  subscriptionCard: document.getElementById("subscription-card"),
+  subFree: document.getElementById("sub-free"),
+  subActive: document.getElementById("sub-active"),
+  subActiveText: document.getElementById("sub-active-text"),
+  subscribeBtn: document.getElementById("subscribe-btn"),
+  subManageBtn: document.getElementById("sub-manage-btn"),
+  subscribeOverlay: document.getElementById("subscribe-overlay"),
+  subscribeModal: document.getElementById("subscribe-modal"),
+  subscribeClose: document.getElementById("subscribe-close"),
+  subscribeGo: document.getElementById("subscribe-go"),
+  subscribeGoLabel: document.getElementById("subscribe-go-label"),
   toast: document.getElementById("toast"),
   newBtn: document.getElementById("new-btn"),
   optionsBtn: document.getElementById("options-btn"),
@@ -139,6 +150,14 @@ const I18N = {
     grantNoteTitle: "You've been granted access",
     grantNoteCustom: (d, m) => `You now have ${d} debates and ${m} minutes per day.`,
     grantNoteFull: "You now have unlimited access.",
+    // Subscription (Section 5)
+    subActive: "You're on Pro.",
+    subActiveUntil: (date) => `You're on Pro — renews ${date}.`,
+    subRedirecting: "Redirecting…",
+    subThanks: "Welcome to Pro! Your higher limits are active.",
+    subCancelled: "Checkout cancelled — no charge made.",
+    subAlready: "You're already on Pro.",
+    subSignInFirst: "Sign in first to subscribe.",
     noServer: "Could not reach the arena server.",
     micNeedsHttps: "Voice input needs a secure (https) connection — it works on the deployed site.",
     micDenied: "Microphone access denied — allow it in your browser settings.",
@@ -236,6 +255,14 @@ const I18N = {
     grantNoteTitle: "Du hast Zugang erhalten",
     grantNoteCustom: (d, m) => `Du hast jetzt ${d} Debatten und ${m} Minuten pro Tag.`,
     grantNoteFull: "Du hast jetzt unbegrenzten Zugang.",
+    // Abo (Abschnitt 5)
+    subActive: "Du bist auf Pro.",
+    subActiveUntil: (date) => `Du bist auf Pro — verlängert sich am ${date}.`,
+    subRedirecting: "Weiterleitung…",
+    subThanks: "Willkommen bei Pro! Deine höheren Limits sind aktiv.",
+    subCancelled: "Bezahlung abgebrochen — keine Abbuchung.",
+    subAlready: "Du bist bereits auf Pro.",
+    subSignInFirst: "Zum Abonnieren zuerst anmelden.",
     noServer: "Server nicht erreichbar.",
     micNeedsHttps: "Spracheingabe braucht eine sichere (https) Verbindung — auf der veröffentlichten Seite funktioniert sie.",
     micDenied: "Mikrofonzugriff verweigert — erlaube ihn in den Browsereinstellungen.",
@@ -332,6 +359,14 @@ const I18N = {
     grantNoteTitle: "به شما دسترسی داده شد",
     grantNoteCustom: (d, m) => `اکنون ${d} مناظره و ${m} دقیقه در روز دارید.`,
     grantNoteFull: "اکنون دسترسی نامحدود دارید.",
+    // اشتراک (بخش ۵)
+    subActive: "شما عضو Pro هستید.",
+    subActiveUntil: (date) => `شما عضو Pro هستید — تمدید در ${date}.`,
+    subRedirecting: "در حال انتقال…",
+    subThanks: "به Pro خوش آمدید! محدودیت‌های بالاتر شما فعال شد.",
+    subCancelled: "پرداخت لغو شد — مبلغی کسر نشد.",
+    subAlready: "شما از قبل عضو Pro هستید.",
+    subSignInFirst: "برای اشتراک ابتدا وارد شوید.",
     noServer: "اتصال به سرور میدان برقرار نشد.",
     micNeedsHttps: "ورودی صوتی به اتصال امن (https) نیاز دارد — روی سایت منتشرشده کار می‌کند.",
     micDenied: "دسترسی به میکروفون رد شد — آن را در تنظیمات مرورگر مجاز کنید.",
@@ -684,6 +719,7 @@ async function initAuth() {
   updateAuthUI();
   refreshUsageMeter(); // signed-in identity known — show their real remaining
   checkGrantNote(); // show any pending admin grant note for this user
+  refreshSubscription(); // free vs. Pro state
   if (currentUser) pullCloudDebates();
 
   // Every auth change (sign in, sign out, or switching straight from one
@@ -699,6 +735,7 @@ async function initAuth() {
     renderHistory();
     refreshUsageMeter(); // account switched — its window differs, re-read it
     checkGrantNote();
+    refreshSubscription();
     if (currentUser) pullCloudDebates();
   });
 }
@@ -1820,6 +1857,138 @@ if (els.grantNoteDismiss) {
   });
 }
 
+/* ---------------- Subscription / Pro (Section 5) ----------------
+   Signed-in only. Free users see a "Go Pro" pitch → explainer modal →
+   Stripe hosted Checkout. Active subscribers see status + a manage link that
+   opens Stripe's billing portal. The usage meter automatically shows the
+   higher subscriber limits (the server resolves the tier). */
+async function refreshSubscription() {
+  if (!els.subscriptionCard) return;
+  if (!currentUser) {
+    els.subscriptionCard.hidden = true;
+    return;
+  }
+  try {
+    const token = await currentAccessToken();
+    if (!token) {
+      els.subscriptionCard.hidden = true;
+      return;
+    }
+    const res = await fetch(`${BACKEND_URL}/api/subscription`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("subscription fetch failed");
+    const data = await res.json();
+    els.subscriptionCard.hidden = false;
+    if (data.active) {
+      els.subFree.hidden = true;
+      els.subActive.hidden = false;
+      const until = data.currentPeriodEnd
+        ? new Date(data.currentPeriodEnd).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+        : null;
+      els.subActiveText.textContent = until ? t("subActiveUntil", until) : t("subActive");
+      if (els.subManageBtn) els.subManageBtn.hidden = !data.canManage;
+    } else {
+      els.subActive.hidden = true;
+      els.subFree.hidden = false;
+    }
+  } catch {
+    els.subscriptionCard.hidden = true; // never let this break the drawer
+  }
+}
+
+function openSubscribeModal() {
+  if (!els.subscribeModal) return;
+  els.subscribeOverlay.hidden = false;
+  els.subscribeModal.hidden = false;
+}
+function closeSubscribeModal() {
+  if (!els.subscribeModal) return;
+  els.subscribeOverlay.hidden = true;
+  els.subscribeModal.hidden = true;
+}
+
+async function startCheckout() {
+  const original = els.subscribeGoLabel.textContent;
+  els.subscribeGo.disabled = true;
+  els.subscribeGoLabel.textContent = t("subRedirecting");
+  try {
+    const token = await currentAccessToken();
+    if (!token) {
+      toast(t("subSignInFirst"));
+      return;
+    }
+    const res = await fetch(`${BACKEND_URL}/api/subscribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.url) {
+      window.location.href = data.url; // hand off to Stripe hosted Checkout
+      return;
+    }
+    if (data.code === "already_subscribed") {
+      toast(t("subAlready"));
+      closeSubscribeModal();
+      refreshSubscription();
+      return;
+    }
+    throw new Error(data.error || "checkout failed");
+  } catch (err) {
+    toast(err.message || t("noServer"));
+  } finally {
+    els.subscribeGo.disabled = false;
+    els.subscribeGoLabel.textContent = original;
+  }
+}
+
+async function openBillingPortal() {
+  try {
+    const token = await currentAccessToken();
+    if (!token) return;
+    const res = await fetch(`${BACKEND_URL}/api/billing-portal`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.url) {
+      window.location.href = data.url;
+      return;
+    }
+    throw new Error(data.error || "portal failed");
+  } catch (err) {
+    toast(err.message || t("noServer"));
+  }
+}
+
+// After returning from Stripe Checkout (?subscribed=1 / ?subscribe_cancelled=1),
+// confirm and refresh — the webhook may lag a beat, so re-check shortly after.
+function handleCheckoutReturn() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("subscribed") === "1") {
+    toast(t("subThanks"));
+    refreshSubscription();
+    refreshUsageMeter();
+    setTimeout(() => { refreshSubscription(); refreshUsageMeter(); }, 3000);
+    cleanCheckoutParams();
+  } else if (params.get("subscribe_cancelled") === "1") {
+    toast(t("subCancelled"));
+    cleanCheckoutParams();
+  }
+}
+function cleanCheckoutParams() {
+  const url = new URL(location.href);
+  url.searchParams.delete("subscribed");
+  url.searchParams.delete("subscribe_cancelled");
+  history.replaceState({}, "", url.pathname + url.search + url.hash);
+}
+
+if (els.subscribeBtn) els.subscribeBtn.addEventListener("click", openSubscribeModal);
+if (els.subscribeClose) els.subscribeClose.addEventListener("click", closeSubscribeModal);
+if (els.subscribeOverlay) els.subscribeOverlay.addEventListener("click", closeSubscribeModal);
+if (els.subscribeGo) els.subscribeGo.addEventListener("click", startCheckout);
+if (els.subManageBtn) els.subManageBtn.addEventListener("click", openBillingPortal);
+
 let countdownTimer = null;
 let warned30 = false;
 
@@ -2450,6 +2619,7 @@ applyTheme(loadTheme());
 
 initAuth();
 initSplash();
+handleCheckoutReturn(); // confirm/clean up after returning from Stripe Checkout
 // Guarantee the usage meter loads even when Supabase isn't configured (guest-
 // only build) — initAuth() returns early in that case before refreshing it.
 if (!sb) refreshUsageMeter();

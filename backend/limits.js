@@ -43,8 +43,17 @@ export const TIERS = {
     totalSeconds: envNum("FREE_TOTAL_SECONDS", 1800), // 30 min cumulative
     windowMs: envNum("FREE_WINDOW_HOURS", 24) * HOUR, // rolling window length
   },
-  // Section 5 adds `subscriber` here; Section 3 custom allowances are built by
-  // cloning `free` and overriding maxDebates / totalSeconds per grant.
+  // Paid subscribers (Section 5) — same rolling-window engine, higher numbers.
+  // Provisional (no real usage history yet); tune here and nowhere else.
+  subscriber: {
+    id: "subscriber",
+    maxDebates: envNum("SUB_MAX_DEBATES", 25), // debates per rolling window
+    perDebateSeconds: envNum("SUB_PER_DEBATE_SECONDS", 1800), // 30 min hard cutoff
+    totalSeconds: envNum("SUB_TOTAL_SECONDS", 14400), // 4 hours cumulative
+    windowMs: envNum("SUB_WINDOW_HOURS", 24) * HOUR,
+  },
+  // Section 3 custom allowances are built by cloning `free` and overriding
+  // maxDebates / totalSeconds per grant (see customTier below).
 };
 
 // Build a one-off tier from an admin "custom allowance" grant (Section 3):
