@@ -953,6 +953,7 @@ function openSavedDebate(id) {
   currentDebate = null;
   viewingSaved = true;
   lineEls.clear();
+  turnHl.clear();
   turnText.clear();
 
   els.transcript.innerHTML = "";
@@ -1295,6 +1296,7 @@ function startNewDebate() {
   currentDebate = null;
   viewingSaved = false;
   lineEls.clear();
+  turnHl.clear();
   turnText.clear();
   els.transcript.innerHTML = "";
   els.stopBtn.hidden = true;
@@ -1352,14 +1354,65 @@ function addLine(kind, speaker, text) {
   return el;
 }
 
+// Per-turn karaoke state (Section 4). The turn body is a run of finalized
+// sentence spans followed by one trailing text node holding whatever delta text
+// hasn't been resolved into a spoken sentence yet. Deltas only update the tail
+// node (cheap, and never disturbs an in-progress highlight); each sentence, when
+// its audio arrives, is moved from the tail into a <span class="ksent"> of word
+// spans that can be lit up in sync with playback.
+const turnHl = new Map(); // turnId → { bodyEl, tailNode, raw, cursor }
+
 function appendToTurn(turnId, agent, text) {
-  let el = lineEls.get(turnId);
-  if (!el) {
-    el = addLine(agent.toLowerCase(), agentDisplayName(agent), "");
+  let state = turnHl.get(turnId);
+  if (!state) {
+    const el = addLine(agent.toLowerCase(), agentDisplayName(agent), "");
     lineEls.set(turnId, el);
+    const bodyEl = el.querySelector(".body");
+    const tailNode = document.createTextNode("");
+    bodyEl.appendChild(tailNode);
+    state = { bodyEl, tailNode, raw: "", cursor: 0 };
+    turnHl.set(turnId, state);
   }
-  el.querySelector(".body").textContent += text;
+  state.raw += text;
+  state.tailNode.nodeValue = state.raw.slice(state.cursor);
   els.transcript.scrollTop = els.transcript.scrollHeight;
+}
+
+// Move a completed sentence out of the trailing text and into word spans so it
+// can be highlighted. Returns the span id to drive the highlight, or null when
+// there are no per-word timings (or the sentence couldn't be located) — in
+// which case the text still shows, just without the karaoke effect.
+function finalizeSentence(turnId, text, words) {
+  const state = turnHl.get(turnId);
+  if (!state || !text) return null;
+  const idx = state.raw.indexOf(text, state.cursor);
+  if (idx < 0) return null; // out-of-sync with the stream — leave it as plain tail text
+  const leading = state.raw.slice(state.cursor, idx);
+  if (leading) state.bodyEl.insertBefore(document.createTextNode(leading), state.tailNode);
+
+  const hlId = `kw-${turnId}-${idx}`;
+  const sent = document.createElement("span");
+  sent.className = "ksent";
+  sent.id = hlId;
+  const highlightable = Array.isArray(words) && words.length > 0;
+  if (highlightable) {
+    words.forEach((w, i) => {
+      if (i) sent.appendChild(document.createTextNode(" "));
+      const ws = document.createElement("span");
+      ws.className = "kw";
+      ws.dataset.s = w.start;
+      ws.dataset.e = w.end;
+      ws.textContent = w.word;
+      sent.appendChild(ws);
+    });
+  } else {
+    sent.textContent = text; // no timings — show it, but nothing to highlight
+  }
+  state.bodyEl.insertBefore(sent, state.tailNode);
+  state.cursor = idx + text.length;
+  state.tailNode.nodeValue = state.raw.slice(state.cursor);
+  els.transcript.scrollTop = els.transcript.scrollHeight;
+  return highlightable ? hlId : null;
 }
 
 /* ---------------- Audio + speech playback ----------------
@@ -1396,6 +1449,62 @@ function startKeepAlive() {
 }
 function stopKeepAlive() {
   if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
+}
+
+/* ---- Karaoke word highlight (Section 4) ----
+   While a sentence's audio plays, light the word currently being spoken. Driven
+   by the audio element's real currentTime against the per-word timings from
+   ElevenLabs — never a fixed-interval guess, so it stays in sync regardless of
+   network/decoding jitter. Works for RTL (Persian) with no special-casing: the
+   word spans are in logical order and the browser lays them out right-to-left,
+   so lighting the logical word lights the correct visual word. */
+let hlRaf = null;
+let hlWords = null;
+
+// The current word is the last one whose start time has passed — words are
+// ordered by start, so we keep the most recent one lit (including through the
+// small gaps between words, which reads better than flickering off).
+function activeWordIndex(words, t) {
+  let idx = -1;
+  for (let i = 0; i < words.length; i++) {
+    if (t >= parseFloat(words[i].dataset.s)) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+function paintHighlight(words, t) {
+  const idx = activeWordIndex(words, t);
+  for (let i = 0; i < words.length; i++) words[i].classList.toggle("kw-active", i === idx);
+}
+
+function startHighlight(hlId) {
+  clearHighlight();
+  if (!hlId) return;
+  const sent = document.getElementById(hlId);
+  if (!sent) return;
+  const words = Array.from(sent.querySelectorAll(".kw"));
+  if (!words.length) return;
+  hlWords = words;
+  // Paint immediately so the first word lights without waiting a frame, then
+  // track via rAF (paused automatically when the tab is hidden — fine, since a
+  // highlight nobody's watching doesn't matter, and it resyncs from the live
+  // currentTime the moment the tab is visible again).
+  if (currentAudio) paintHighlight(words, currentAudio.currentTime);
+  const tick = () => {
+    if (!currentAudio || !hlWords) { hlRaf = null; return; }
+    paintHighlight(words, currentAudio.currentTime);
+    hlRaf = requestAnimationFrame(tick);
+  };
+  hlRaf = requestAnimationFrame(tick);
+}
+
+function clearHighlight() {
+  if (hlRaf) { cancelAnimationFrame(hlRaf); hlRaf = null; }
+  if (hlWords) {
+    for (const w of hlWords) w.classList.remove("kw-active");
+    hlWords = null;
+  }
 }
 
 function enqueueAudio(item) {
@@ -1436,12 +1545,14 @@ function playNext() {
       if (advanced) return;
       advanced = true;
       clearTimeout(advanceGuard);
+      clearHighlight();
       playNext();
     };
     const toFallback = () => {
       if (advanced) return;
       advanced = true;
       clearTimeout(advanceGuard);
+      clearHighlight();
       speakFallback(item); // MP3 couldn't play — use the browser voice instead
     };
 
@@ -1461,6 +1572,7 @@ function playNext() {
     audio.src = `data:audio/mpeg;base64,${item.audio}`;
     const p = audio.play();
     if (p && p.catch) p.catch(toFallback);
+    startHighlight(item.hlId); // karaoke: light words in sync with this sentence
     return;
   }
 
@@ -1544,6 +1656,7 @@ function stopAllAudio() {
   halted = true;
   audioQueue.length = 0;
   clearTimeout(advanceGuard);
+  clearHighlight();
   stopKeepAlive();
   if (currentAudio) { try { currentAudio.pause(); } catch {} currentAudio = null; }
   // pause() stops the current utterance faster than cancel() alone on iOS;
@@ -1564,6 +1677,7 @@ function fadeOutAudio() {
   currentTurnDone = false;
   activeTurnId = null;
   clearTimeout(advanceGuard);
+  clearHighlight();
   if (hasTTS) { try { speechSynthesis.pause(); speechSynthesis.cancel(); } catch {} }
 
   const audio = currentAudio;
@@ -1749,6 +1863,7 @@ socket.on("connect", () => console.log("[arena] connected"));
 socket.on("debate-started", ({ topic, deadline }) => {
   els.transcript.innerHTML = "";
   lineEls.clear();
+  turnHl.clear();
   stopAllAudio();
   armPlayback(); // fresh debate — accept audio and keep the speech engine warm
   viewingSaved = false;
@@ -1799,6 +1914,7 @@ socket.on("debate-resumed", () => {
 
 socket.on("turn-start", ({ agent, turnId }) => {
   lineEls.delete(turnId);
+  turnHl.delete(turnId);
   armPlayback(); // a new turn begins (incl. after an interrupt) — accept its audio
 });
 
@@ -1807,7 +1923,12 @@ socket.on("text-delta", ({ agent, turnId, text }) => {
   turnText.set(turnId, (turnText.get(turnId) || "") + text); // for the saved transcript
 });
 
-socket.on("sentence-audio", (payload) => enqueueAudio(payload));
+socket.on("sentence-audio", (payload) => {
+  // Resolve this sentence into highlightable word spans, then queue its audio
+  // tagged with the span id so playback can light the words in sync.
+  const hlId = finalizeSentence(payload.turnId, payload.text, payload.words);
+  enqueueAudio({ ...payload, hlId });
+});
 
 socket.on("turn-end", ({ agent, turnId }) => {
   // Bank this agent's completed turn, then persist so a closed tab keeps it.

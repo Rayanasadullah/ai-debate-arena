@@ -30,10 +30,43 @@ function modelFor(language) {
   return MODEL_BY_LANG[String(language || "en").toLowerCase()] || "eleven_multilingual_v2";
 }
 
+// Turn ElevenLabs' per-character alignment into per-word timings for the
+// karaoke highlight (Section 4). Characters arrive in logical order (which is
+// also correct for RTL languages like Persian — the browser handles visual
+// direction), so we just group runs of non-whitespace characters into words,
+// each taking its first character's start time and its last character's end.
+export function wordsFromAlignment(alignment) {
+  if (!alignment || !Array.isArray(alignment.characters)) return null;
+  const chars = alignment.characters;
+  const starts = alignment.character_start_times_seconds || [];
+  const ends = alignment.character_end_times_seconds || [];
+  const words = [];
+  let cur = null;
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    if (/\s/.test(ch)) {
+      if (cur) { words.push(cur); cur = null; }
+      continue;
+    }
+    if (!cur) cur = { word: "", start: Number(starts[i]) || 0, end: Number(ends[i]) || 0 };
+    cur.word += ch;
+    cur.end = Number(ends[i]) || cur.end;
+  }
+  if (cur) words.push(cur);
+  return words.length ? words : null;
+}
+
 /**
- * Synthesize one sentence to MP3 and return it base64-encoded.
- * Uses the streaming endpoint with latency optimization so ElevenLabs
- * starts sending audio bytes before synthesis finishes.
+ * Synthesize one sentence and return { audio, words }:
+ *   audio — base64 MP3 (or null if TTS isn't configured)
+ *   words — [{ word, start, end }] per-word timings for the karaoke highlight,
+ *           or null when timing data isn't available (playback still works)
+ *
+ * Uses the /with-timestamps endpoint so we get per-character alignment along
+ * with the audio. If that endpoint fails for a given model (e.g. eleven_v3
+ * rejecting it, the way it already rejects optimize_streaming_latency), we fall
+ * back to the plain /stream endpoint for audio-only — so a model without
+ * timestamp support degrades to "voice, no highlight" rather than losing voice.
  */
 let ttsSeq = 0; // global counter so we can trace ordering across the whole debate
 
@@ -46,46 +79,54 @@ export async function synthesizeSentence(agent, text, language = "en") {
   if (!process.env.ELEVENLABS_API_KEY || !voiceId) {
     const missing = !process.env.ELEVENLABS_API_KEY ? "ELEVENLABS_API_KEY" : `voice id for ${agent}`;
     console.log(`[tts #${id}] ${agent} SKIP — ${missing} not set; sending text-only. "${preview}"`);
-    return null; // voice not configured — debate still works as text
+    return { audio: null, words: null }; // voice not configured — debate still works as text
   }
 
-  // eleven_v3 rejects optimize_streaming_latency outright (400
-  // unsupported_model) — that query param only works with the older
-  // turbo/multilingual_v2 models, so it's omitted for v3.
-  const url = modelId === "eleven_v3"
-    ? `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?output_format=mp3_44100_64`
-    : `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&output_format=mp3_44100_64`;
-
+  const headers = {
+    "xi-api-key": process.env.ELEVENLABS_API_KEY,
+    "Content-Type": "application/json",
+  };
+  const body = JSON.stringify({ text, model_id: modelId, voice_settings: VOICE_SETTINGS[agent] });
   const started = Date.now();
   console.log(`[tts #${id}] ${agent}/${language} → ElevenLabs (${text.length} chars) voice=${voiceId.slice(0, 8)}… model=${modelId} "${preview}"`);
 
+  // Preferred: audio + per-character timings in one JSON response.
+  const tsUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps?output_format=mp3_44100_64`;
+  try {
+    const res = await fetch(tsUrl, { method: "POST", headers, body });
+    if (res.ok) {
+      const data = await res.json();
+      const words = wordsFromAlignment(data.alignment || data.normalized_alignment);
+      const ms = Date.now() - started;
+      console.log(`[tts #${id}] ${agent} ✓ OK (timestamps) in ${ms}ms — ${words ? words.length + " words" : "no alignment"}`);
+      return { audio: data.audio_base64 || null, words };
+    }
+    const detail = await res.text().catch(() => "");
+    console.warn(`[tts #${id}] ${agent} with-timestamps ${res.status} — falling back to audio-only. ${detail.slice(0, 140)}`);
+  } catch (err) {
+    console.warn(`[tts #${id}] ${agent} with-timestamps errored — falling back to audio-only. ${err.message}`);
+  }
+
+  // Fallback: plain stream endpoint, audio only (no highlight). eleven_v3
+  // rejects optimize_streaming_latency, so it's omitted for that model.
+  const streamUrl = modelId === "eleven_v3"
+    ? `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?output_format=mp3_44100_64`
+    : `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&output_format=mp3_44100_64`;
+
   let res;
   try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "xi-api-key": process.env.ELEVENLABS_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: VOICE_SETTINGS[agent],
-      }),
-    });
+    res = await fetch(streamUrl, { method: "POST", headers, body });
   } catch (err) {
     console.error(`[tts #${id}] ${agent} ✗ NETWORK ERROR after ${Date.now() - started}ms — ${err.message}`);
     throw err;
   }
-
   const ms = Date.now() - started;
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     console.error(`[tts #${id}] ${agent} ✗ FAIL status=${res.status} in ${ms}ms — ${detail.slice(0, 180)}`);
     throw new Error(`ElevenLabs ${res.status}: ${detail.slice(0, 200)}`);
   }
-
   const buf = Buffer.from(await res.arrayBuffer());
-  console.log(`[tts #${id}] ${agent} ✓ OK status=${res.status} — ${buf.length} bytes in ${ms}ms`);
-  return buf.toString("base64");
+  console.log(`[tts #${id}] ${agent} ✓ OK (audio-only) status=${res.status} — ${buf.length} bytes in ${ms}ms`);
+  return { audio: buf.toString("base64"), words: null };
 }

@@ -730,6 +730,29 @@ body::after {
   color: rgba(232, 240, 254, 0.35);
 }
 
+/* ======= Karaoke word highlight (Section 4) ======= */
+/* A soft, shadowed box slides word to word as each is spoken. Deliberately
+   low-saturation — a glow behind the word, not a loud fill. Tinted per agent
+   via the line class. Works in RTL (Persian) with no extra rules: the word
+   spans are in logical order and the browser positions them right-to-left. */
+.kw {
+  border-radius: 5px;
+  padding: 0 1px;
+  transition: background-color 0.12s ease, box-shadow 0.12s ease, color 0.12s ease;
+}
+.kw-active {
+  background: rgba(0, 168, 255, 0.16);
+  box-shadow: 0 0 12px rgba(0, 168, 255, 0.22);
+  color: var(--text);
+}
+.line-rex .kw-active {
+  background: rgba(255, 45, 85, 0.16);
+  box-shadow: 0 0 12px rgba(255, 45, 85, 0.22);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kw { transition: none; }
+}
+
 /* ======= Grant note banner (Section 3) ======= */
 .grant-note {
   display: flex;

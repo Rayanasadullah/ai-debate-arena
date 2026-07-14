@@ -236,12 +236,12 @@ export class DebateSession {
         audioChain = audioChain.then(async () => {
           if (!this.active || turnId !== this.turnId || this.awaitingUser) return;
           try {
-            const audio = await synthesizeSentence(agent, sentence, this.language);
-            this.emit("sentence-audio", { agent, turnId, text: sentence, audio });
-            console.log(`[debate] → emit sentence-audio: ${agent} turn ${turnId} ${audio ? `WITH audio (${audio.length} b64 chars)` : "text-only (no audio)"}`);
+            const { audio, words } = await synthesizeSentence(agent, sentence, this.language);
+            this.emit("sentence-audio", { agent, turnId, text: sentence, audio, words });
+            console.log(`[debate] → emit sentence-audio: ${agent} turn ${turnId} ${audio ? `WITH audio (${audio.length} b64 chars)` : "text-only (no audio)"}${words ? ` +${words.length} word timings` : ""}`);
           } catch (err) {
             console.error(`[debate] ${agent} turn ${turnId}: TTS failed, emitting text-only — ${err.message}`);
-            this.emit("sentence-audio", { agent, turnId, text: sentence, audio: null });
+            this.emit("sentence-audio", { agent, turnId, text: sentence, audio: null, words: null });
           }
         });
       },
