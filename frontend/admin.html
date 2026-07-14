@@ -57,6 +57,15 @@
     .admin-stats-row.wide { gap: 28px; }
     .admin-chart-wrap {
       position: relative;
+      /* Chart.js's `maintainAspectRatio: false` needs a container with a
+         real, fixed CSS height to measure against — without one, the only
+         constraint was the canvas's HTML height attribute, which isn't
+         enough: each re-render (the country toggle, "Refresh", periodic
+         reloads) let the canvas grow a little more than the last, snowballing
+         into a canvas that keeps getting taller ("like a snake"). Matches the
+         220px canvas height used by two of the three charts below, plus the
+         wrap's own padding. */
+      height: 260px;
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 14px 16px 6px;

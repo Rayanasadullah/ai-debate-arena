@@ -95,6 +95,8 @@ const els = {
   notifySubmitLabel: document.getElementById("notify-submit-label"),
   headerLoginBtn: document.getElementById("header-login-btn"),
   headerLoginLabel: document.getElementById("header-login-label"),
+  headerUpgradeBtn: document.getElementById("header-upgrade-btn"),
+  headerUpgradeLabel: document.getElementById("header-upgrade-label"),
   historyCard: document.getElementById("history-card"),
   historyList: document.getElementById("history-list"),
   historyClear: document.getElementById("history-clear"),
@@ -170,6 +172,7 @@ const I18N = {
     // Options drawer / library / profile
     optionsTitle: "Options",
     newDebate: "New debate",
+    headerUpgrade: "Upgrade",
     signIn: "Sign in",
     signInGoogle: "Sign in with Google",
     signInPitch: "Sign in to save this debate, reach it from any device, and build your own debate library.",
@@ -274,6 +277,7 @@ const I18N = {
     transcribing: "übertrage…",
     optionsTitle: "Optionen",
     newDebate: "Neue Debatte",
+    headerUpgrade: "Upgrade",
     signIn: "Anmelden",
     signInGoogle: "Mit Google anmelden",
     signInPitch: "Melde dich an, um diese Debatte zu speichern, sie auf jedem Gerät zu öffnen und dein eigenes Archiv aufzubauen.",
@@ -378,6 +382,7 @@ const I18N = {
     transcribing: "در حال تبدیل به متن…",
     optionsTitle: "تنظیمات",
     newDebate: "مناظره جدید",
+    headerUpgrade: "ارتقا",
     signIn: "ورود",
     signInGoogle: "ورود با گوگل",
     signInPitch: "وارد شوید تا این مناظره ذخیره شود، از هر دستگاهی به آن دسترسی داشته باشید و کتابخانه‌ی شخصی خود را بسازید.",
@@ -487,6 +492,7 @@ function applyLanguage(lang) {
   if (els.signinBtnLabel) els.signinBtnLabel.textContent = t("signInGoogle");
   if (els.signoutBtn) els.signoutBtn.textContent = t("signOut");
   if (els.headerLoginLabel) els.headerLoginLabel.textContent = t("signIn");
+  if (els.headerUpgradeLabel) els.headerUpgradeLabel.textContent = t("headerUpgrade");
   if (els.profileSummaryTitle) els.profileSummaryTitle.textContent = t("profileTitle");
   document.getElementById("label-name").textContent = t("labelName");
   const labelNameDisplay = document.getElementById("label-name-display");
@@ -871,6 +877,11 @@ function initSplash() {
     els.signinBtn?.click(); // reuse the real, already-wired Google sign-in flow
   });
   els.headerLoginBtn?.addEventListener("click", () => openSplash());
+  // Always-visible upgrade shortcut (Section 5) — deliberately NOT tucked
+  // inside the Options drawer, so free users see a path to Pro without an
+  // extra click. Hidden for active subscribers and unlimited/admin identities
+  // (see refreshSubscription() and renderUsageMeter()).
+  els.headerUpgradeBtn?.addEventListener("click", () => openSubscribeModal());
 
   // Google sign-in does a full-page redirect away and back — Supabase hands
   // the session back via tokens in the URL (hash for the implicit flow, a
@@ -1809,6 +1820,9 @@ function renderUsageMeter(u) {
     meter.classList.remove("locked");
     meter.textContent = t("usageUnlimited");
     setStartLocked(false);
+    // Unlimited/admin identities already have full access — the upgrade
+    // pitch doesn't apply to them.
+    if (els.headerUpgradeBtn) els.headerUpgradeBtn.hidden = true;
     return;
   }
   if (!u.allowed) {
@@ -1874,6 +1888,10 @@ async function refreshSubscription() {
   if (!els.subscriptionCard) return;
   if (!currentUser) {
     els.subscriptionCard.hidden = true;
+    // Guests are definitionally not Pro — keep the header upgrade shortcut
+    // visible for them too (unless renderUsageMeter() hides it for an
+    // unlimited/admin identity, which doesn't apply to guests anyway).
+    if (els.headerUpgradeBtn) els.headerUpgradeBtn.hidden = false;
     return;
   }
   try {
@@ -1896,9 +1914,12 @@ async function refreshSubscription() {
         : null;
       els.subActiveText.textContent = until ? t("subActiveUntil", until) : t("subActive");
       if (els.subManageBtn) els.subManageBtn.hidden = !data.canManage;
+      // Already Pro — the persistent upgrade shortcut has nothing left to offer.
+      if (els.headerUpgradeBtn) els.headerUpgradeBtn.hidden = true;
     } else {
       els.subActive.hidden = true;
       els.subFree.hidden = false;
+      if (els.headerUpgradeBtn) els.headerUpgradeBtn.hidden = false;
     }
   } catch {
     els.subscriptionCard.hidden = true; // never let this break the drawer
@@ -2142,9 +2163,9 @@ socket.on("debate-state", ({ state }) => {
 const LIMIT_CODES = new Set(["site_limit", "per_user_limit", "per_user_count", "per_user_time"]);
 socket.on("debate-error", ({ message, code }) => {
   toast(message);
-  // Hit a limit (site-wide or per-person count/time) — offer the "notify me"
-  // interest capture instead of just leaving them with a dead-end error.
-  if (LIMIT_CODES.has(code)) openNotify();
+  // Hit a limit (site-wide or per-person count/time) — offer the Pro
+  // upgrade explainer instead of just leaving them with a dead-end error.
+  if (LIMIT_CODES.has(code)) openSubscribeModal();
   els.startBtn.disabled = false;
   els.stopBtn.hidden = true;
   if (els.pauseBtn) els.pauseBtn.hidden = true;
@@ -2203,7 +2224,7 @@ els.form.addEventListener("submit", async (e) => {
   // unlocks; don't even attempt a start (the server would reject it anyway).
   if (usageLocked) {
     refreshUsageMeter();
-    openNotify();
+    openSubscribeModal();
     return;
   }
   els.startBtn.disabled = true;
@@ -2232,7 +2253,7 @@ els.form.addEventListener("submit", async (e) => {
     socket.emit("start-debate", { topic, language: currentLang, userName: getUserDisplayName(), accessToken });
   } catch (err) {
     toast(err.message || t("noServer"));
-    if (LIMIT_CODES.has(err.code)) openNotify();
+    if (LIMIT_CODES.has(err.code)) openSubscribeModal();
     els.startBtn.disabled = false;
     refreshUsageMeter();
   }

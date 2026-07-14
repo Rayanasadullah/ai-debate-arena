@@ -129,6 +129,33 @@ body::after {
   box-shadow: 0 0 14px rgba(0, 168, 255, 0.25);
 }
 
+/* Amber/gold on purpose — distinct from the blue sign-in pill, so the
+   upgrade CTA reads as its own thing at a glance. */
+.header-upgrade-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 176, 32, 0.5);
+  background: rgba(255, 176, 32, 0.12);
+  color: #ffcf6e;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.header-upgrade-btn:hover {
+  border-color: rgba(255, 176, 32, 0.8);
+  background: rgba(255, 176, 32, 0.2);
+  box-shadow: 0 0 14px rgba(255, 176, 32, 0.3);
+}
+
 /* ======= Language switch ======= */
 .lang-switch {
   display: flex;
@@ -1640,6 +1667,11 @@ html[data-theme="light"] .lang-switch button.active {
 html[data-theme="light"] .header-login-btn {
   background: rgba(0, 90, 168, 0.08);
   border-color: rgba(0, 90, 168, 0.35);
+}
+html[data-theme="light"] .header-upgrade-btn {
+  background: rgba(191, 121, 0, 0.1);
+  border-color: rgba(191, 121, 0, 0.4);
+  color: #8a5900;
 }
 
 /* ---- Topic bar ---- */
