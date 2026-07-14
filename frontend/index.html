@@ -32,7 +32,12 @@
     </button>
 
     <div class="splash-center">
-      <h1 class="splash-title"><span id="splash-typed"></span><span class="splash-cursor" aria-hidden="true"></span></h1>
+      <!-- dir="ltr" is deliberate: SPLASH_PHRASES in app.js are always
+           hardcoded English regardless of the selected app language, but
+           this element otherwise inherits <html dir="rtl"> whenever Persian
+           was the last-selected language — that flipped the cursor dot to
+           the wrong (left) side of the text. -->
+      <h1 class="splash-title" dir="ltr"><span id="splash-typed"></span><span class="splash-cursor" aria-hidden="true"></span></h1>
     </div>
 
     <div class="splash-sheet">
