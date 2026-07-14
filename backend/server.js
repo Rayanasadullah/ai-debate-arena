@@ -18,7 +18,7 @@ const { summarizeDebate } = await import("./claude.js");
 const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js");
 const { isAdmin, getUserGrant, getUnseenGrantNote, listAllowlist, addToAllowlist, removeFromAllowlist, listUsersWithStats } = await import("./admin.js");
 const { TIERS, customTier, usageSnapshot, recordDebateStart, recordDebateDuration, formatUnlock } = await import("./limits.js");
-const { recordDebateGeo, listGeoStats } = await import("./geo.js");
+const { recordDebateGeo, listGeoStats, lookupCountry } = await import("./geo.js");
 const { serviceCredits } = await import("./credits.js");
 const { stripeConfigured, createCheckoutSession, createBillingPortalSession, verifyWebhook } = await import("./stripe.js");
 const { getSubscription, upsertSubscription, isActiveSubscriber } = await import("./subscriptions.js");
@@ -335,6 +335,16 @@ function frontendOrigin(req) {
   return process.env.FRONTEND_ORIGIN || req.headers.origin || "";
 }
 
+// EU member states — a euro-priced Checkout session is what unlocks SEPA
+// Direct Debit (pay by IBAN, no card needed), which Stripe refuses to offer
+// on a USD price regardless of Dashboard settings. Everyone outside this list
+// still gets the normal USD checkout, unchanged.
+const EU_COUNTRY_CODES = new Set([
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+  "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+  "SI", "ES", "SE",
+]);
+
 // Start a checkout — returns a Stripe-hosted URL for the client to redirect to.
 app.post("/api/subscribe", async (req, res) => {
   if (!stripeConfigured()) return res.status(501).json({ error: "Subscriptions aren't set up on the server yet." });
@@ -342,12 +352,20 @@ app.post("/api/subscribe", async (req, res) => {
   if (!user?.id) return res.status(401).json({ error: "Sign in to subscribe." });
   if (await isActiveSubscriber(user.id)) return res.status(409).json({ error: "You're already subscribed.", code: "already_subscribed" });
   const origin = frontendOrigin(req);
+  let currency = "usd";
+  try {
+    const geo = await lookupCountry(clientIp(req));
+    if (geo?.countryCode && EU_COUNTRY_CODES.has(geo.countryCode)) currency = "eur";
+  } catch (err) {
+    console.error("[stripe] geo lookup for currency failed, defaulting to usd:", err.message);
+  }
   try {
     const session = await createCheckoutSession({
       userId: user.id,
       email: user.email,
       successUrl: `${origin}/?subscribed=1`,
       cancelUrl: `${origin}/?subscribe_cancelled=1`,
+      currency,
     });
     res.json({ url: session.url });
   } catch (err) {

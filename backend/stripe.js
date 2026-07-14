@@ -17,6 +17,11 @@ import crypto from "node:crypto";
 const SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const PRICE_CENTS = Number(process.env.STRIPE_PRICE_CENTS) || 1000; // $10.00 / month
+// EUR line items are what unlock SEPA Direct Debit (bank-account payment, no
+// card needed) in Stripe Checkout — it refuses to offer SEPA on a USD price
+// no matter what's enabled in the Dashboard. Charged to EU customers only
+// (see server.js), everyone else still pays in USD exactly as before.
+const PRICE_CENTS_EUR = Number(process.env.STRIPE_PRICE_CENTS_EUR) || 1000; // €10.00 / month
 
 export function stripeConfigured() {
   return Boolean(SECRET_KEY);
@@ -45,14 +50,19 @@ async function stripeFetch(path, params) {
 // Create a subscription Checkout Session for this signed-in user. Returns the
 // hosted-checkout URL to redirect them to. client_reference_id + metadata carry
 // our Supabase user id so the webhook can map the subscription back to them.
-export async function createCheckoutSession({ userId, email, successUrl, cancelUrl }) {
+export async function createCheckoutSession({ userId, email, successUrl, cancelUrl, currency }) {
+  // `currency` is resolved server-side from the visitor's IP (see server.js) —
+  // "eur" for EU customers so SEPA Direct Debit becomes available, "usd" (the
+  // default) for everyone else, unchanged from before.
+  const cur = currency === "eur" ? "eur" : "usd";
+  const amount = cur === "eur" ? PRICE_CENTS_EUR : PRICE_CENTS;
   return stripeFetch("checkout/sessions", {
     mode: "subscription",
     client_reference_id: userId,
     ...(email ? { customer_email: email } : {}),
     "line_items[0][quantity]": 1,
-    "line_items[0][price_data][currency]": "usd",
-    "line_items[0][price_data][unit_amount]": PRICE_CENTS,
+    "line_items[0][price_data][currency]": cur,
+    "line_items[0][price_data][unit_amount]": amount,
     "line_items[0][price_data][recurring][interval]": "month",
     "line_items[0][price_data][product_data][name]": "AI Debate Arena Pro",
     "subscription_data[metadata][user_id]": userId,
