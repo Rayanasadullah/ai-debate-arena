@@ -48,6 +48,16 @@ export class DebateSession {
     this.paused = false;         // manually held by the human — distinct from stop()
     this.pauseResolve = null;
     this.userName = "";          // human's saved name, so agents can address them by it
+    // Usage limits (Section 1). startedAt>0 marks a billable debate in progress;
+    // it's zeroed once the debate's duration has been recorded so we never
+    // double-count. maxSeconds is the per-debate hard cutoff (0 = none, e.g.
+    // unlimited identities). onEnd(elapsedSeconds, usageContext) is set by the
+    // server to record the elapsed time against the right rolling window.
+    this.startedAt = 0;
+    this.maxSeconds = 0;
+    this.maxTimer = null;
+    this.usageContext = null;
+    this.onEnd = null;
   }
 
   emit(event, payload) {
@@ -59,7 +69,7 @@ export class DebateSession {
     this.emit("debate-state", { state });
   }
 
-  start(topic, language, userName) {
+  start(topic, language, userName, opts = {}) {
     const epoch = ++this.epoch; // invalidates any loop from a previous debate
     this.topic = topic;
     this.language = ["en", "de", "fa"].includes(language) ? language : "en";
@@ -75,8 +85,55 @@ export class DebateSession {
     this.awaitingUser = false;
     this.interrupting = false;
     this.paused = false;
-    this.emit("debate-started", { topic });
+
+    // ---- Usage tracking + per-debate hard cutoff (Section 1) ----
+    this.usageContext = opts.usageContext || null;
+    this.maxSeconds = Number(opts.maxSeconds) > 0 ? Math.floor(opts.maxSeconds) : 0;
+    this.startedAt = Date.now();
+    this.armMaxTimer(epoch);
+    // Tell the client when this debate is scheduled to auto-end so it can show a
+    // live countdown. The server timer above is the real enforcement; the client
+    // countdown is display only (and can't be trusted to actually stop it).
+    const deadline = this.maxSeconds ? this.startedAt + this.maxSeconds * 1000 : null;
+    this.emit("debate-started", { topic, startedAt: this.startedAt, maxSeconds: this.maxSeconds, deadline });
     this.runLoop(epoch).catch((err) => this.fail(err));
+  }
+
+  // Arm the hard cutoff: when the per-debate cap elapses, tell the client its
+  // time is up and stop the debate (which records the elapsed duration).
+  armMaxTimer(epoch) {
+    this.clearMaxTimer();
+    if (!this.maxSeconds) return; // unlimited identities have no cutoff
+    this.maxTimer = setTimeout(() => {
+      if (!this.active || epoch !== this.epoch) return;
+      this.emit("debate-timeup", { maxSeconds: this.maxSeconds });
+      this.stop();
+    }, this.maxSeconds * 1000);
+  }
+
+  clearMaxTimer() {
+    if (this.maxTimer) {
+      clearTimeout(this.maxTimer);
+      this.maxTimer = null;
+    }
+  }
+
+  // Record this debate's actual elapsed time exactly once, then disarm. Called
+  // from stop() so every end path (natural, cutoff, manual stop, disconnect/
+  // abandon) counts the time that really elapsed — abandoning near the cap
+  // doesn't dodge the budget.
+  finalizeUsage() {
+    this.clearMaxTimer();
+    if (!this.startedAt) return; // already recorded, or no debate was running
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - this.startedAt) / 1000));
+    const ctx = this.usageContext;
+    this.startedAt = 0;
+    this.usageContext = null;
+    try {
+      this.onEnd?.(elapsedSeconds, ctx);
+    } catch (err) {
+      console.error("[debate] onEnd failed:", err?.message);
+    }
   }
 
   // Human set/changed their name via Profile — usable even mid-debate.
@@ -349,6 +406,8 @@ export class DebateSession {
     this.userTextResolve?.();
     this.pauseResolve?.();
     this.pauseResolve = null;
+    // Record the elapsed duration against the usage window before clearing state.
+    this.finalizeUsage();
     this.setState("IDLE");
     this.emit("debate-stopped", {});
   }
@@ -356,6 +415,7 @@ export class DebateSession {
   fail(err) {
     console.error("[debate]", err);
     this.active = false;
+    this.finalizeUsage(); // still count whatever time elapsed before the error
     this.emit("debate-error", {
       message: err?.status === 401
         ? "Invalid or missing Anthropic API key on the server."

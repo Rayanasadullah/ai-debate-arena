@@ -6,3 +6,4 @@ backend/.env
 deno.lock
 voice-samples/
 linkedin*.md
+claude-code-spec-*.md

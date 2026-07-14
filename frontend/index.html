@@ -91,6 +91,9 @@
           <span class="btn-label">Ignite debate</span>
         </button>
       </form>
+      <!-- Free-tier usage: "4 of 6 debates left · 18 min left", or a lockout
+           message with the exact unlock time when a cap is hit (Section 1). -->
+      <p id="usage-meter" class="usage-meter" hidden aria-live="polite"></p>
     </header>
 
     <!-- ======= Agents ======= -->
@@ -148,7 +151,7 @@
 
     <!-- ======= Transcript ======= -->
     <section class="transcript-wrap">
-      <div class="transcript-label"><span></span> <em id="transcript-label-text">live transcript</em> <span></span></div>
+      <div class="transcript-label"><span></span> <em id="transcript-label-text">live transcript</em> <span id="debate-timer" class="debate-timer" hidden aria-hidden="true"></span> <span></span></div>
       <div id="transcript" class="transcript" role="log" aria-live="polite"></div>
     </section>
 

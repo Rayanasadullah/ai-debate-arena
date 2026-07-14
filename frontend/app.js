@@ -26,6 +26,8 @@ const els = {
   pauseLabel: document.getElementById("pause-label"),
   stopBtn: document.getElementById("stop-btn"),
   micHint: document.getElementById("mic-hint"),
+  usageMeter: document.getElementById("usage-meter"),
+  debateTimer: document.getElementById("debate-timer"),
   toast: document.getElementById("toast"),
   newBtn: document.getElementById("new-btn"),
   optionsBtn: document.getElementById("options-btn"),
@@ -122,6 +124,14 @@ const I18N = {
     debateResumed: "▶ debate resumed",
     topicChanged: (topic) => `↻ topic changed — “${topic}”`,
     needTopic: "Give the agents something to fight about.",
+    // Usage limits (Section 1)
+    usageDebatesLeft: (left, max) => `${left} of ${max} debates left`,
+    usageMinLeft: (mins) => `${mins} min left`,
+    usageLockedCount: (when) => `You've used all your free debates. New debates unlock in ${when}.`,
+    usageLockedTime: (when) => `You've used up your debate time. New debates unlock in ${when}.`,
+    usageUnlimited: "Unlimited access — no debate limits",
+    timeUp: "⏱ time limit reached — the debate ended.",
+    timeWarn: "30 seconds left in this debate",
     noServer: "Could not reach the arena server.",
     micNeedsHttps: "Voice input needs a secure (https) connection — it works on the deployed site.",
     micDenied: "Microphone access denied — allow it in your browser settings.",
@@ -208,6 +218,14 @@ const I18N = {
     debateResumed: "▶ debatte fortgesetzt",
     topicChanged: (topic) => `↻ thema geändert — „${topic}“`,
     needTopic: "Gib den beiden ein Streitthema.",
+    // Nutzungslimits (Abschnitt 1)
+    usageDebatesLeft: (left, max) => `${left} von ${max} Debatten übrig`,
+    usageMinLeft: (mins) => `${mins} Min übrig`,
+    usageLockedCount: (when) => `Du hast alle Gratis-Debatten aufgebraucht. Neue Debatten in ${when} freigeschaltet.`,
+    usageLockedTime: (when) => `Deine Debattenzeit ist aufgebraucht. Neue Debatten in ${when} freigeschaltet.`,
+    usageUnlimited: "Unbegrenzter Zugang — keine Limits",
+    timeUp: "⏱ Zeitlimit erreicht — die Debatte wurde beendet.",
+    timeWarn: "Noch 30 Sekunden in dieser Debatte",
     noServer: "Server nicht erreichbar.",
     micNeedsHttps: "Spracheingabe braucht eine sichere (https) Verbindung — auf der veröffentlichten Seite funktioniert sie.",
     micDenied: "Mikrofonzugriff verweigert — erlaube ihn in den Browsereinstellungen.",
@@ -293,6 +311,14 @@ const I18N = {
     debateResumed: "▶ مناظره ادامه یافت",
     topicChanged: (topic) => `↻ موضوع تغییر کرد — «${topic}»`,
     needTopic: "موضوعی برای بحث به آن‌ها بدهید.",
+    // محدودیت استفاده (بخش ۱)
+    usageDebatesLeft: (left, max) => `${left} از ${max} مناظره باقی مانده`,
+    usageMinLeft: (mins) => `${mins} دقیقه باقی مانده`,
+    usageLockedCount: (when) => `همه مناظره‌های رایگان شما تمام شد. مناظره‌های جدید تا ${when} دیگر باز می‌شوند.`,
+    usageLockedTime: (when) => `زمان مناظره شما تمام شد. مناظره‌های جدید تا ${when} دیگر باز می‌شوند.`,
+    usageUnlimited: "دسترسی نامحدود — بدون محدودیت",
+    timeUp: "⏱ محدودیت زمانی رسید — مناظره پایان یافت.",
+    timeWarn: "۳۰ ثانیه تا پایان این مناظره",
     noServer: "اتصال به سرور میدان برقرار نشد.",
     micNeedsHttps: "ورودی صوتی به اتصال امن (https) نیاز دارد — روی سایت منتشرشده کار می‌کند.",
     micDenied: "دسترسی به میکروفون رد شد — آن را در تنظیمات مرورگر مجاز کنید.",
@@ -643,6 +669,7 @@ async function initAuth() {
   const { data } = await sb.auth.getSession();
   currentUser = data?.session?.user || null;
   updateAuthUI();
+  refreshUsageMeter(); // signed-in identity known — show their real remaining
   if (currentUser) pullCloudDebates();
 
   // Every auth change (sign in, sign out, or switching straight from one
@@ -656,6 +683,7 @@ async function initAuth() {
     renderProfileSummary();
     syncProfileNameField();
     renderHistory();
+    refreshUsageMeter(); // account switched — its window differs, re-read it
     if (currentUser) pullCloudDebates();
   });
 }
@@ -1569,9 +1597,105 @@ function setPauseUi(held) {
   els.pauseBtn.title = t(held ? "resume" : "pause");
 }
 
+/* ---------------- Usage limits: meter + countdown (Section 1) ----------------
+   The backend (backend/limits.js) is the source of truth for the rolling-window
+   caps. The frontend only reflects them: a pre-debate meter of what's left, an
+   in-debate countdown to the per-debate cutoff, and a lockout message with the
+   exact unlock time. NOTE: guest usage is read from /api/usage too (the server
+   tracks guests server-side by IP), rather than a separate localStorage counter
+   — one source of truth avoids the client and server disagreeing. */
+
+async function currentAccessToken() {
+  const { data } = sb ? await sb.auth.getSession() : { data: null };
+  return data?.session?.access_token || null;
+}
+
+let usageLocked = false;
+
+// Fetch + render the pre-debate meter. Called at idle moments only (load, after
+// a debate ends, after auth changes) so it never re-enables Start mid-debate.
+async function refreshUsageMeter() {
+  if (!els.usageMeter) return;
+  try {
+    const token = await currentAccessToken();
+    const res = await fetch(`${BACKEND_URL}/api/usage`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error("usage fetch failed");
+    renderUsageMeter(await res.json());
+  } catch {
+    els.usageMeter.hidden = true; // network hiccup — better blank than wrong
+  }
+}
+
+function renderUsageMeter(u) {
+  const meter = els.usageMeter;
+  meter.hidden = false;
+  if (u.unlimited) {
+    meter.classList.remove("locked");
+    meter.textContent = t("usageUnlimited");
+    setStartLocked(false);
+    return;
+  }
+  if (!u.allowed) {
+    const when = u.unlock?.relative || "";
+    meter.classList.add("locked");
+    meter.textContent = u.reason === "time" ? t("usageLockedTime", when) : t("usageLockedCount", when);
+    setStartLocked(true);
+    return;
+  }
+  meter.classList.remove("locked");
+  const mins = Math.max(0, Math.floor((u.remainingSeconds || 0) / 60));
+  meter.textContent = `${t("usageDebatesLeft", u.remainingDebates, u.maxDebates)} · ${t("usageMinLeft", mins)}`;
+  setStartLocked(false);
+}
+
+function setStartLocked(locked) {
+  usageLocked = locked;
+  if (els.startBtn) els.startBtn.disabled = locked;
+}
+
+let countdownTimer = null;
+let warned30 = false;
+
+// Tick the in-debate countdown toward the server-sent deadline. The server
+// timer is the real cutoff; this is display only. Warns once at 30s left.
+function startCountdown(deadline) {
+  stopCountdown();
+  if (!deadline || !els.debateTimer) return; // unlimited identities: no cutoff
+  warned30 = false;
+  els.debateTimer.hidden = false;
+  const tick = () => {
+    const msLeft = deadline - Date.now();
+    const totalSec = Math.max(0, Math.ceil(msLeft / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    els.debateTimer.textContent = `${m}:${String(s).padStart(2, "0")}`;
+    els.debateTimer.classList.toggle("warning", totalSec <= 30);
+    if (totalSec <= 30 && !warned30) {
+      warned30 = true;
+      toast(t("timeWarn"));
+    }
+    if (msLeft <= 0) stopCountdown();
+  };
+  tick();
+  countdownTimer = setInterval(tick, 500);
+}
+
+function stopCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+  if (els.debateTimer) {
+    els.debateTimer.hidden = true;
+    els.debateTimer.classList.remove("warning");
+  }
+}
+
 socket.on("connect", () => console.log("[arena] connected"));
 
-socket.on("debate-started", ({ topic }) => {
+socket.on("debate-started", ({ topic, deadline }) => {
   els.transcript.innerHTML = "";
   lineEls.clear();
   stopAllAudio();
@@ -1585,16 +1709,26 @@ socket.on("debate-started", ({ topic }) => {
   els.newBtn.hidden = false;
   if (els.pauseBtn) els.pauseBtn.hidden = false;
   setPauseUi(false);
+  if (els.usageMeter) els.usageMeter.hidden = true; // hide the meter during the debate
+  startCountdown(deadline);
+});
+
+// Per-debate hard cutoff reached — the server ends the debate right after this
+// (a debate-stopped follows and does the cleanup/persist/PDF offer).
+socket.on("debate-timeup", () => {
+  addLine("system", null, t("timeUp"));
 });
 
 socket.on("debate-stopped", () => {
   stopAllAudio();
+  stopCountdown();
   els.stopBtn.hidden = true;
   if (els.pauseBtn) els.pauseBtn.hidden = true;
   setPauseUi(false);
   addLine("system", null, t("halted"));
   persistDebate();
   offerPdf(currentDebate);
+  refreshUsageMeter(); // a debate just consumed count + time — show what's left
 });
 
 socket.on("debate-held", () => {
@@ -1656,17 +1790,20 @@ socket.on("debate-state", ({ state }) => {
   document.body.dataset.debateState = state;
 });
 
+const LIMIT_CODES = new Set(["site_limit", "per_user_limit", "per_user_count", "per_user_time"]);
 socket.on("debate-error", ({ message, code }) => {
   toast(message);
-  // Hit the daily limit (site-wide or per-person) — offer the "notify me"
+  // Hit a limit (site-wide or per-person count/time) — offer the "notify me"
   // interest capture instead of just leaving them with a dead-end error.
-  if (code === "per_user_limit" || code === "site_limit") openNotify();
+  if (LIMIT_CODES.has(code)) openNotify();
   els.startBtn.disabled = false;
   els.stopBtn.hidden = true;
   if (els.pauseBtn) els.pauseBtn.hidden = true;
   setPauseUi(false);
   els.micBtn.disabled = false;
   stopAllAudio();
+  stopCountdown();
+  refreshUsageMeter();
 });
 
 els.stopBtn.addEventListener("click", () => {
@@ -1713,6 +1850,13 @@ els.form.addEventListener("submit", async (e) => {
     toast(t("needTopic"));
     return;
   }
+  // Locked out by a rolling-window cap — the meter already explains when it
+  // unlocks; don't even attempt a start (the server would reject it anyway).
+  if (usageLocked) {
+    refreshUsageMeter();
+    openNotify();
+    return;
+  }
   els.startBtn.disabled = true;
 
   try {
@@ -1739,8 +1883,9 @@ els.form.addEventListener("submit", async (e) => {
     socket.emit("start-debate", { topic, language: currentLang, userName: getUserDisplayName(), accessToken });
   } catch (err) {
     toast(err.message || t("noServer"));
-    if (err.code === "per_user_limit" || err.code === "site_limit") openNotify();
+    if (LIMIT_CODES.has(err.code)) openNotify();
     els.startBtn.disabled = false;
+    refreshUsageMeter();
   }
 });
 
@@ -2133,6 +2278,9 @@ applyTheme(loadTheme());
 
 initAuth();
 initSplash();
+// Guarantee the usage meter loads even when Supabase isn't configured (guest-
+// only build) — initAuth() returns early in that case before refreshing it.
+if (!sb) refreshUsageMeter();
 
 /* ---------------- PWA service worker ----------------
    Registers only in a secure context (HTTPS or localhost). Over plain-http LAN

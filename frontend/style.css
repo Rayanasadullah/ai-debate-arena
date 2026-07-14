@@ -730,6 +730,47 @@ body::after {
   color: rgba(232, 240, 254, 0.35);
 }
 
+/* ======= Usage meter + debate countdown (Section 1) ======= */
+.usage-meter {
+  margin: 10px auto 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  text-align: center;
+}
+.usage-meter.locked {
+  color: var(--rex);
+  font-weight: 600;
+}
+
+/* The timer is a <span> inside .transcript-label, whose generic `span` rule
+   turns children into flex:1 gradient divider lines — undo that here so the
+   countdown renders as text, not a stretched bar. */
+.transcript-label span.debate-timer {
+  flex: 0 0 auto;
+  max-width: none;
+  height: auto;
+  background: none;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.15em;
+  color: var(--aria);
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.transcript-label span.debate-timer.warning {
+  color: var(--rex);
+  border-color: rgba(255, 45, 85, 0.4);
+  animation: timerPulse 1s ease-in-out infinite;
+}
+@keyframes timerPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-label span.debate-timer.warning { animation: none; }
+}
+
 /* ======= Toast ======= */
 .toast {
   position: fixed;

@@ -17,6 +17,7 @@ const { transcribeAudio } = await import("./scribe.js");
 const { summarizeDebate } = await import("./claude.js");
 const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js");
 const { isAdmin, isUnlimitedEmail, listAllowlist, addToAllowlist, removeFromAllowlist, listUsersWithStats } = await import("./admin.js");
+const { TIERS, usageSnapshot, recordDebateStart, recordDebateDuration, formatUnlock } = await import("./limits.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -51,21 +52,16 @@ function recordDebate() {
 const capMessage = () =>
   `The arena has hit its free daily limit (${DAILY_LIMIT} debates). It resets at midnight UTC — come back tomorrow!`;
 
-// ---- Per-person daily cap ---------------------------------------------------
+// ---- Per-person rolling-window caps (see backend/limits.js) ------------------
 // The site-wide cap above stops the WHOLE app from running up an unbounded
-// bill, but doesn't stop one person from eating the entire day's budget by
-// themselves. This adds a second, per-person limit on top of it.
+// bill; this second layer stops any ONE person from eating the whole budget.
 //
-// "Person" is the verified signed-in user (their Supabase user id) when
-// they're signed in, or their IP address when they're not. IP-only would be
-// wrong: switching Google accounts on the same device/network would still
-// share one IP-based quota, which defeats the point of a *per-person* limit.
-const _rawPerUserLimit = process.env.DAILY_DEBATE_LIMIT_PER_USER;
-let PER_USER_LIMIT =
-  _rawPerUserLimit !== undefined && _rawPerUserLimit !== "" && !Number.isNaN(Number(_rawPerUserLimit))
-    ? Number(_rawPerUserLimit)
-    : 5; // sensible default — plenty for a real visitor, not enough to blow the budget alone
-const perUserUsage = new Map(); // key (user id or ip) -> { date, count }
+// The real logic (three combined caps, rolling 24h window, Supabase persistence
+// for signed-in users) lives in backend/limits.js — the single source of truth
+// for the limit numbers. Here we only build the "context" that identifies whose
+// window applies: the verified signed-in user (Supabase user id) when signed
+// in, or the IP address when not. IP-only would be wrong for signed-in users:
+// switching Google accounts on one device/network would share a quota.
 
 function clientIp(source) {
   // Prefer the X-Forwarded-For header (set by Render's proxy) so this reads
@@ -77,18 +73,34 @@ function clientIp(source) {
   return source.ip || source.handshake?.address || "unknown";
 }
 
-function perUserCapReached(key) {
-  const entry = perUserUsage.get(key);
-  return !!entry && entry.date === utcDate() && entry.count >= PER_USER_LIMIT;
+// Which rolling-window tier applies to this identity. For now everyone is on
+// the free tier; Section 3 (admin custom allowances) and Section 5 (paid
+// subscribers) will resolve a richer tier from the user's email/subscription.
+function resolveTier(_user) {
+  return TIERS.free;
 }
-function recordUserDebate(key) {
-  const today = utcDate();
-  const entry = perUserUsage.get(key);
-  if (entry && entry.date === today) entry.count += 1;
-  else perUserUsage.set(key, { date: today, count: 1 });
+
+// Build the limits.js context: signed-in users key off their Supabase id and
+// persist to the database; guests key off IP and live in server memory.
+function usageContextFor(source, user) {
+  if (user?.id) return { kind: "user", key: user.id, tier: resolveTier(user) };
+  return { kind: "guest", key: `ip:${clientIp(source)}`, tier: resolveTier(null) };
 }
-const perUserCapMessage = () =>
-  `You've reached today's per-person limit (${PER_USER_LIMIT} debates). It resets at midnight UTC — come back tomorrow!`;
+
+// Free-tier debate-count cap, surfaced to the admin page (and editable there).
+// Under the rolling-window model this is TIERS.free.maxDebates.
+function perUserLimitValue() {
+  return TIERS.free.maxDebates;
+}
+
+function lockoutMessage(snap, now = Date.now()) {
+  const unlock = formatUnlock(snap.unlockAt, now);
+  const when = unlock ? `in ${unlock.relative}` : "soon";
+  if (snap.reason === "time") {
+    return `You've used up your debate time for now. New debates unlock ${when}.`;
+  }
+  return `You've used all your free debates for now. New debates unlock ${when}.`;
+}
 
 // ---- Unlimited access allowlist ---------------------------------------------
 // Emails that skip both caps above entirely and aren't counted — so they
@@ -106,9 +118,10 @@ const UNLIMITED_EMAILS = new Set(
 
 // Shared quota check for both /api/start and the start-debate socket event.
 // Verifies the bearer token (if any) to identify a real signed-in user, then
-// applies the unlimited allowlist, the site-wide cap, and the per-person cap
-// in that order. Returns { allowed, key, unlimited } or { allowed: false,
-// message, code }.
+// applies the unlimited allowlist, the site-wide cap, and the per-person
+// rolling-window caps in that order. Read-only — it does NOT record usage;
+// the socket handler records at the actual moment a debate begins.
+// Returns { allowed:true, unlimited, context } or { allowed:false, message, code }.
 async function checkDebateQuota(source, token) {
   const user = token ? await verifyUser(token) : null;
   const email = user?.email || null;
@@ -117,16 +130,17 @@ async function checkDebateQuota(source, token) {
   if (isAdmin(user)) return { allowed: true, unlimited: true };
   if (await isUnlimitedEmail(email, UNLIMITED_EMAILS)) return { allowed: true, unlimited: true };
   if (capReached()) return { allowed: false, message: capMessage(), code: "site_limit" };
-  const key = user?.id || clientIp(source);
-  if (perUserCapReached(key)) {
-    return { allowed: false, message: perUserCapMessage(), code: "per_user_limit" };
+  const context = usageContextFor(source, user);
+  const snap = await usageSnapshot(context);
+  if (!snap.allowed) {
+    return {
+      allowed: false,
+      message: lockoutMessage(snap),
+      code: snap.reason === "time" ? "per_user_time" : "per_user_count",
+      context,
+    };
   }
-  return { allowed: true, key, unlimited: false };
-}
-function recordDebateUsage(quota) {
-  if (quota.unlimited) return; // free access — doesn't touch either counter
-  recordDebate();
-  recordUserDebate(quota.key);
+  return { allowed: true, unlimited: false, context };
 }
 
 const app = express();
@@ -215,10 +229,24 @@ app.post("/api/feedback", async (req, res) => {
   }
 });
 
-// Remaining daily quota (so the UI or I can check how many debates are left).
-app.get("/api/usage", (_req, res) => {
+// Per-identity rolling-window usage — drives the frontend's "X of N debates
+// left / Y min left" and lockout messaging. Reads the bearer token so a
+// signed-in user gets their Supabase-backed window; a guest gets their IP one.
+app.get("/api/usage", async (req, res) => {
   rolloverIfNeeded();
-  res.json({ used: usage.count, limit: DAILY_LIMIT, date: usage.date });
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const user = token ? await verifyUser(token) : null;
+  // Unlimited identities (owner + allowlist) report no limits at all.
+  if (isAdmin(user) || (await isUnlimitedEmail(user?.email || null, UNLIMITED_EMAILS))) {
+    return res.json({ unlimited: true, site: { used: usage.count, limit: DAILY_LIMIT } });
+  }
+  const snap = await usageSnapshot(usageContextFor(req, user));
+  res.json({
+    unlimited: false,
+    ...snap,
+    unlock: formatUnlock(snap.unlockAt),
+    site: { used: usage.count, limit: DAILY_LIMIT },
+  });
 });
 
 // ---- Admin (owner-only) ------------------------------------------------
@@ -242,7 +270,7 @@ app.get("/api/admin/overview", async (req, res) => {
     const allowlist = await listAllowlist();
     res.json({
       usage: { used: usage.count, limit: DAILY_LIMIT, date: usage.date },
-      perUserLimit: PER_USER_LIMIT,
+      perUserLimit: perUserLimitValue(),
       allowlist,
     });
   } catch (err) {
@@ -313,9 +341,12 @@ app.post("/api/admin/limits", async (req, res) => {
     if (!Number.isFinite(n) || n < 0) {
       return res.status(400).json({ error: "perUserLimit must be a number ≥ 0." });
     }
-    PER_USER_LIMIT = Math.floor(n);
+    // Under the rolling-window model the "per-person" number is the free-tier
+    // debate-count cap (backend/limits.js). Mutating it here retunes the free
+    // tier at runtime; like DAILY_LIMIT it resets to the env default on restart.
+    TIERS.free.maxDebates = Math.floor(n);
   }
-  res.json({ ok: true, dailyLimit: DAILY_LIMIT, perUserLimit: PER_USER_LIMIT });
+  res.json({ ok: true, dailyLimit: DAILY_LIMIT, perUserLimit: perUserLimitValue() });
 });
 
 // Initialize a debate: validates the topic and hands back a session id.
@@ -373,6 +404,16 @@ io.on("connection", (socket) => {
   const session = new DebateSession(socket);
   console.log(`[socket] connected ${socket.id}`);
 
+  // When any debate on this session ends (natural end, 5-min cutoff, stop, or
+  // disconnect/abandon), record its actual elapsed seconds against whichever
+  // rolling-window the debate was started under. The context is captured per
+  // debate inside the session and handed back here, so ending debate A while
+  // starting debate B can never bill A's time against B's identity. `ctx` is
+  // null for unlimited identities (owner/allowlist), which aren't capped.
+  session.onEnd = (elapsedSeconds, ctx) => {
+    if (ctx) recordDebateDuration(ctx, elapsedSeconds).catch((e) => console.error("[limits] duration:", e.message));
+  };
+
   // async because it verifies the bearer token first — catch so a real
   // failure reports cleanly instead of becoming an unhandled rejection.
   socket.on("start-debate", ({ topic, language, userName, accessToken } = {}) => {
@@ -390,9 +431,30 @@ io.on("connection", (socket) => {
         socket.emit("debate-error", { message: quota.message, code: quota.code });
         return;
       }
-      recordDebateUsage(quota);
+
+      let maxSeconds = 0; // 0 = no per-debate cutoff (unlimited identities)
+      let usageContext = null;
+      if (!quota.unlimited) {
+        // Record the START now (opens the window if fresh, +1 to the count).
+        // Re-checked here in case the window changed between the gate above and
+        // now (e.g. a concurrent tab), so a race can't slip past the cap.
+        const rec = await recordDebateStart(quota.context);
+        if (!rec.allowed) {
+          socket.emit("debate-error", {
+            message: lockoutMessage(rec),
+            code: rec.reason === "time" ? "per_user_time" : "per_user_count",
+          });
+          return;
+        }
+        recordDebate(); // site-wide counter
+        usageContext = quota.context;
+        maxSeconds = quota.context.tier.perDebateSeconds;
+      }
+
+      // stop() ends the PREVIOUS debate (recording its duration with its own
+      // captured context) before start() installs the new one.
       session.stop();
-      session.start(clean.slice(0, 2000), language, userName);
+      session.start(clean.slice(0, 2000), language, userName, { maxSeconds, usageContext });
     })().catch((err) => session.fail(err));
   });
 
