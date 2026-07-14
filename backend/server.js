@@ -19,6 +19,7 @@ const { verifyUser, sendFeedback, notifyInterest } = await import("./feedback.js
 const { isAdmin, getUserGrant, getUnseenGrantNote, listAllowlist, addToAllowlist, removeFromAllowlist, listUsersWithStats } = await import("./admin.js");
 const { TIERS, customTier, usageSnapshot, recordDebateStart, recordDebateDuration, formatUnlock } = await import("./limits.js");
 const { recordDebateGeo, listGeoStats } = await import("./geo.js");
+const { serviceCredits } = await import("./credits.js");
 const PORT = process.env.PORT || 3000;
 
 // ---- Daily cost cap ---------------------------------------------------------
@@ -327,6 +328,17 @@ app.get("/api/admin/geo", async (req, res) => {
   } catch (err) {
     console.error("[admin] geo failed:", err.message);
     res.status(502).json({ error: "Could not load location data." });
+  }
+});
+
+// Remaining ElevenLabs / Anthropic budget, for the service-credits widget.
+app.get("/api/admin/credits", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    res.json(await serviceCredits());
+  } catch (err) {
+    console.error("[admin] credits failed:", err.message);
+    res.status(502).json({ error: "Could not load credit data." });
   }
 });
 

@@ -47,6 +47,8 @@ const els = {
   grantCustomFields: document.getElementById("grant-custom-fields"),
   grantDebates: document.getElementById("grant-debates"),
   grantMinutes: document.getElementById("grant-minutes"),
+  creditsList: document.getElementById("credits-list"),
+  creditsRefreshBtn: document.getElementById("admin-credits-refresh-btn"),
   toast: document.getElementById("admin-toast"),
   usersRefreshBtn: document.getElementById("admin-users-refresh-btn"),
   statTotalUsers: document.getElementById("stat-total-users"),
@@ -368,6 +370,97 @@ async function loadGeo() {
   }
 }
 
+/* ---------------- Service credits (Section 7) ----------------
+   Color-flagged remaining-budget bars: green > 30%, amber 10–30%, red < 10%. */
+function creditBarClass(pct) {
+  if (pct > 30) return "ok";
+  if (pct >= 10) return "warn";
+  return "low";
+}
+
+function creditRow(name, figure, pct) {
+  const row = document.createElement("div");
+  row.className = "credit-row";
+  const head = document.createElement("div");
+  head.className = "credit-head";
+  const nameEl = document.createElement("span");
+  nameEl.className = "credit-name";
+  nameEl.textContent = name;
+  const figEl = document.createElement("span");
+  figEl.className = "credit-figure";
+  figEl.textContent = figure;
+  head.appendChild(nameEl);
+  head.appendChild(figEl);
+  row.appendChild(head);
+  const bar = document.createElement("div");
+  bar.className = "credit-bar";
+  const fill = document.createElement("div");
+  fill.className = `credit-fill ${creditBarClass(pct)}`;
+  fill.style.width = `${Math.max(2, Math.min(100, pct))}%`;
+  bar.appendChild(fill);
+  row.appendChild(bar);
+  return row;
+}
+
+function creditMutedRow(name, text) {
+  const row = document.createElement("div");
+  row.className = "credit-row";
+  const nameEl = document.createElement("div");
+  nameEl.className = "credit-name";
+  nameEl.textContent = name;
+  const noteEl = document.createElement("div");
+  noteEl.className = "credit-muted";
+  noteEl.textContent = text;
+  row.appendChild(nameEl);
+  row.appendChild(noteEl);
+  return row;
+}
+
+function renderCredits(data) {
+  const list = els.creditsList;
+  list.innerHTML = "";
+
+  const el = data.elevenlabs || {};
+  if (!el.configured) {
+    list.appendChild(creditMutedRow("ElevenLabs", "Not configured (no API key)."));
+  } else if (el.error) {
+    list.appendChild(
+      creditMutedRow(
+        "ElevenLabs",
+        el.reason === "permission"
+          ? "Key lacks the “User: Read” permission needed to read usage."
+          : "Couldn't reach ElevenLabs."
+      )
+    );
+  } else {
+    const usedK = Math.round(el.used / 1000);
+    const limitK = Math.round(el.limit / 1000);
+    list.appendChild(
+      creditRow("ElevenLabs characters", `${el.remainingPct}% left · ${usedK}k / ${limitK}k used`, el.remainingPct)
+    );
+  }
+
+  const an = data.anthropic || {};
+  if (!an.configured) {
+    list.appendChild(creditMutedRow("Anthropic (Claude)", "Not set up — add ANTHROPIC_ADMIN_KEY to enable."));
+  } else if (an.error) {
+    list.appendChild(creditMutedRow("Anthropic (Claude)", "Couldn't reach the Anthropic Admin API."));
+  } else {
+    list.appendChild(
+      creditRow("Anthropic budget", `${an.remainingPct}% left · $${an.spent} / $${an.budget} this month`, an.remainingPct)
+    );
+  }
+}
+
+async function loadCredits() {
+  try {
+    renderCredits(await adminFetch("/api/admin/credits"));
+  } catch (err) {
+    els.creditsList.innerHTML = "";
+    els.creditsList.appendChild(creditMutedRow("Service credits", err.message || "Could not load credit data."));
+  }
+}
+
 function renderUsersList(users) {
   els.usersList.querySelectorAll(".user-item").forEach((el) => el.remove());
   if (!users || !users.length) {
@@ -552,6 +645,7 @@ async function checkAccess() {
     renderAllowlist(overview.allowlist);
     loadUsers(); // independent of the overview call above — don't block the rest of the dashboard on it
     loadGeo();
+    loadCredits();
   } catch (err) {
     if (err.status === 403) {
       els.deniedEmail.textContent = session.user?.email || "";
@@ -587,6 +681,7 @@ els.signoutBtn2?.addEventListener("click", signOut);
 els.refreshBtn?.addEventListener("click", loadOverview);
 els.usersRefreshBtn?.addEventListener("click", loadUsers);
 els.geoRefreshBtn?.addEventListener("click", loadGeo);
+els.creditsRefreshBtn?.addEventListener("click", loadCredits);
 els.limitsSaveBtn?.addEventListener("click", saveLimits);
 els.allowAddBtn?.addEventListener("click", addToAllowlist);
 

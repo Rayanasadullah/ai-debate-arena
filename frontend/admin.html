@@ -154,6 +154,19 @@
     }
     .admin-allow-badge.full { color: var(--aria); border: 1px solid rgba(0, 168, 255, 0.4); }
     .admin-allow-badge.custom { color: var(--rex); border: 1px solid rgba(255, 45, 85, 0.4); }
+
+    /* Service-credit bars: color-flagged by remaining percentage. */
+    .credits-list { display: flex; flex-direction: column; gap: 14px; }
+    .credit-row { display: flex; flex-direction: column; gap: 5px; }
+    .credit-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+    .credit-name { font-size: 0.9rem; color: var(--text); }
+    .credit-figure { font-size: 0.78rem; color: var(--text-dim); white-space: nowrap; }
+    .credit-bar { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+    .credit-fill { height: 100%; border-radius: 999px; transition: width 0.3s; }
+    .credit-fill.ok { background: #2ecc71; }
+    .credit-fill.warn { background: #f4b740; }
+    .credit-fill.low { background: var(--rex); }
+    .credit-muted { font-size: 0.8rem; color: var(--text-dim); }
   </style>
 </head>
 <body>
@@ -208,6 +221,17 @@
           <div class="admin-stat"><span class="admin-stat-num" id="stat-peruser">–</span><span class="admin-stat-label">per person / day</span></div>
         </div>
         <p class="admin-note">Resets at midnight UTC. Counters live in server memory, so they also reset if the server restarts.</p>
+      </section>
+
+      <section class="admin-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="section-head">
+          <h3>Service credits</h3>
+          <button id="admin-credits-refresh-btn" class="text-btn" type="button">Refresh</button>
+        </div>
+        <div id="credits-list" class="credits-list">
+          <p class="admin-note" id="credits-loading">Loading…</p>
+        </div>
+        <p class="admin-note">ElevenLabs shows characters left this cycle. Anthropic shows spend this month against your budget (<code>ANTHROPIC_MONTHLY_BUDGET_USD</code>) — it needs an <code>ANTHROPIC_ADMIN_KEY</code>. Also turn on the providers' own low-balance email alerts directly in their dashboards.</p>
       </section>
 
       <section class="admin-card" style="display: flex; flex-direction: column; gap: 16px;">
