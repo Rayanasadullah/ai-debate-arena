@@ -398,16 +398,12 @@
     </button>
     <h3 id="subscribe-modal-title">AI Debate Arena Pro</h3>
     <p id="subscribe-modal-sub" class="feedback-sub">For $10/month you get more arena time:</p>
-    <!-- Total time listed FIRST and as the headline number -- it's the real
-         cap (see backend/limits.js). Debate count and per-debate length are
-         phrased as "up to" shape limits WITHIN that total, not separate
-         numbers that multiply out to something bigger -- that reads as a
-         contradiction (25 debates x 30 min looks like way more than "4
-         hours/day"), which is what the old copy did. -->
+    <!-- Numbers are deliberately EXACT (10 debates x 6 min = 60 min), same
+         pattern as the free tier (6 x 5 = 30) -- see backend/limits.js. -->
     <ul class="sub-benefits" id="sub-benefits">
-      <li id="sub-benefit-1">Up to <strong>60 min</strong> of total debate time per day <span class="sub-was">(free: 30 min)</span></li>
+      <li id="sub-benefit-1"><strong>60 min</strong> of total debate time per day <span class="sub-was">(free: 30 min)</span></li>
       <li id="sub-benefit-2">Up to <strong>10</strong> debates per day <span class="sub-was">(free: 6)</span></li>
-      <li id="sub-benefit-3">Each debate capped at <strong>15 min</strong> <span class="sub-was">(free: 5 min)</span></li>
+      <li id="sub-benefit-3">Each debate capped at <strong>6 min</strong> <span class="sub-was">(free: 5 min)</span></li>
     </ul>
     <p class="sub-fineprint" id="sub-fineprint">$10/month, billed monthly. Cancel anytime. Card or PayPal.</p>
     <button id="subscribe-go" class="pill-btn" type="button">

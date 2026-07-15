@@ -44,19 +44,20 @@ export const TIERS = {
     windowMs: envNum("FREE_WINDOW_HOURS", 24) * HOUR, // rolling window length
   },
   // Paid subscribers (Section 5) — same rolling-window engine, higher numbers.
-  // totalSeconds is the number that actually drives cost (Claude tokens +
-  // ElevenLabs characters scale with minutes of debate generated, not with
-  // debate count or the per-debate cap), so it's set deliberately below what
-  // maxDebates x perDebateSeconds could theoretically reach -- the daily total
-  // is the real ceiling, count/per-debate just shape how it can be spent.
-  // Reduced from an earlier 25 / 30min / 4h draft after a cost review -- no
-  // real usage history yet, revisit once actual Claude/ElevenLabs spend per
-  // subscriber is known (see the admin "Service credits" panel).
+  // Deliberately EXACT like the free tier above (6 x 5 = 30): maxDebates x
+  // perDebateSeconds = totalSeconds precisely (10 x 6min = 60min), so the
+  // three numbers shown in the upgrade modal add up instead of looking like
+  // a contradiction. totalSeconds (cost driver: Claude tokens + ElevenLabs
+  // characters scale with minutes generated) is what was cost-reviewed down
+  // from an earlier 4h/day draft; maxDebates/perDebateSeconds were then
+  // chosen to multiply out to it exactly. No real usage history yet --
+  // revisit once actual per-subscriber spend is visible in the admin
+  // "Service credits" panel.
   subscriber: {
     id: "subscriber",
     maxDebates: envNum("SUB_MAX_DEBATES", 10), // debates per rolling window
-    perDebateSeconds: envNum("SUB_PER_DEBATE_SECONDS", 900), // 15 min hard cutoff
-    totalSeconds: envNum("SUB_TOTAL_SECONDS", 3600), // 60 min cumulative -- the real cap
+    perDebateSeconds: envNum("SUB_PER_DEBATE_SECONDS", 360), // 6 min hard cutoff
+    totalSeconds: envNum("SUB_TOTAL_SECONDS", 3600), // 60 min cumulative = 10 x 6min exactly
     windowMs: envNum("SUB_WINDOW_HOURS", 24) * HOUR,
   },
   // Section 3 custom allowances are built by cloning `free` and overriding
