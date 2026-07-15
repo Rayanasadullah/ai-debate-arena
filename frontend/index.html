@@ -89,8 +89,10 @@
                Hidden for active subscribers and unlimited/admin identities
                (see refreshSubscription()/renderUsageMeter() in app.js). -->
           <button id="header-upgrade-btn" class="header-upgrade-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
-              <path d="M12 2 4.5 20h3.2L9.4 15h5.2l1.7 5h3.2L12 2zm0 5.8L14 13h-4l2-5.2z"/>
+            <!-- Plain up-arrow — the previous mountain-peak glyph rendered
+                 close enough to the letter "A" that it read as "A Upgrade". -->
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
+              <path d="M12 3.5 19 11h-4.5v9.5h-5V11H5l7-7.5z"/>
             </svg>
             <span id="header-upgrade-label">Upgrade</span>
           </button>
