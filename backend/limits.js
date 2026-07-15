@@ -44,12 +44,19 @@ export const TIERS = {
     windowMs: envNum("FREE_WINDOW_HOURS", 24) * HOUR, // rolling window length
   },
   // Paid subscribers (Section 5) — same rolling-window engine, higher numbers.
-  // Provisional (no real usage history yet); tune here and nowhere else.
+  // totalSeconds is the number that actually drives cost (Claude tokens +
+  // ElevenLabs characters scale with minutes of debate generated, not with
+  // debate count or the per-debate cap), so it's set deliberately below what
+  // maxDebates x perDebateSeconds could theoretically reach -- the daily total
+  // is the real ceiling, count/per-debate just shape how it can be spent.
+  // Reduced from an earlier 25 / 30min / 4h draft after a cost review -- no
+  // real usage history yet, revisit once actual Claude/ElevenLabs spend per
+  // subscriber is known (see the admin "Service credits" panel).
   subscriber: {
     id: "subscriber",
-    maxDebates: envNum("SUB_MAX_DEBATES", 25), // debates per rolling window
-    perDebateSeconds: envNum("SUB_PER_DEBATE_SECONDS", 1800), // 30 min hard cutoff
-    totalSeconds: envNum("SUB_TOTAL_SECONDS", 14400), // 4 hours cumulative
+    maxDebates: envNum("SUB_MAX_DEBATES", 10), // debates per rolling window
+    perDebateSeconds: envNum("SUB_PER_DEBATE_SECONDS", 900), // 15 min hard cutoff
+    totalSeconds: envNum("SUB_TOTAL_SECONDS", 3600), // 60 min cumulative -- the real cap
     windowMs: envNum("SUB_WINDOW_HOURS", 24) * HOUR,
   },
   // Section 3 custom allowances are built by cloning `free` and overriding
